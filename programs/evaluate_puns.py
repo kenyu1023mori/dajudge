@@ -5,6 +5,9 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
+# ToDo: 推論時の挙動がおかしい、何入力してもスコアが3, 3, 2になる。
+# ToDo: 交差検証
+
 # ダジャレ本文と 3 人のスコア (scores_1, 2, 3) で、別々に学習させる。
 # word2vec, DNN, Adam, 活性化関数は ReLU
 # 評価は MSE と MAE
