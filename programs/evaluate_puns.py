@@ -29,6 +29,9 @@ INF = 10e8
 # 学習に使うデータ数
 lim = INF
 
+# 学習と評価をするか
+is_train_and_evaluate = True
+
 try:
     with open(file_path, "r", encoding="utf-8") as file:
         # ダジャレデータは 25 行目から
@@ -47,9 +50,9 @@ try:
                 pun_data.append((pun_text, score_1, score_2, score_3))
 
 except FileNotFoundError:
-    print(f"指定されたファイルが見つかりません: {file_path}")
+    print(f"File not found: {file_path}")
 except Exception as e:
-    print(f"エラーが発生しました: {e}")
+    print(f"An error occurred: {e}")
 
 # 駄洒落をトークン化
 sentences = [pun[0].split() for pun in pun_data if isinstance(pun[0], str)]
@@ -70,31 +73,31 @@ def get_average_vector(words, model, vector_size=100):
 # 全ての駄洒落をベクトル化
 X = np.array([get_average_vector(sentence, w2v_model) for sentence in sentences])
 
-# 学習とテスト用データの分割
+# ニューラルネットワークモデルの構築 (DajarePredictor) のクラス定義
+class DajarePredictor(nn.Module):
+    def __init__(self):
+        super(DajarePredictor, self).__init__()
+        self.fc1 = nn.Linear(100, 128)
+        self.dropout1 = nn.Dropout(0.3)
+        
+        self.fc2 = nn.Linear(128, 64)
+        self.dropout2 = nn.Dropout(0.3)
+        
+        self.fc3 = nn.Linear(64, 32)
+        self.fc4 = nn.Linear(32, 1)  # 出力層は1ユニット (連続値の予測)
+    
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.dropout1(x)
+        x = torch.relu(self.fc2(x))
+        x = self.dropout2(x)
+        x = torch.relu(self.fc3(x))
+        x = self.fc4(x)
+        return x
+
+# 学習と評価を行う関数
 def train_and_evaluate_model(X, y, label_name):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-
-    # ニューラルネットワークモデルの構築
-    class DajarePredictor(nn.Module):
-        def __init__(self):
-            super(DajarePredictor, self).__init__()
-            self.fc1 = nn.Linear(100, 128)
-            self.dropout1 = nn.Dropout(0.3)
-            
-            self.fc2 = nn.Linear(128, 64)
-            self.dropout2 = nn.Dropout(0.3)
-            
-            self.fc3 = nn.Linear(64, 32)
-            self.fc4 = nn.Linear(32, 1)  # 出力層は1ユニット (連続値の予測)
-        
-        def forward(self, x):
-            x = torch.relu(self.fc1(x))
-            x = self.dropout1(x)
-            x = torch.relu(self.fc2(x))
-            x = self.dropout2(x)
-            x = torch.relu(self.fc3(x))
-            x = self.fc4(x)
-            return x
 
     model = DajarePredictor()
     criterion = nn.L1Loss()  # 平均絶対誤差 (MAE) を重視
@@ -134,8 +137,45 @@ def train_and_evaluate_model(X, y, label_name):
         mae = torch.mean(torch.abs(rounded_predictions - y_test_tensor)).item()
         print(f"{label_name} - Test MSE Loss: {test_loss}")
         print(f"{label_name} - Test MAE (rounded): {mae}")
+        
+    # モデルをファイルに保存
+    torch.save(model.state_dict(), f'{label_name}_model.pth')
 
 # 各ラベルでモデルの学習と評価を行う
-train_and_evaluate_model(X, scores_1, "Label 1")
-train_and_evaluate_model(X, scores_2, "Label 2")
-train_and_evaluate_model(X, scores_3, "Label 3")
+if is_train_and_evaluate:
+    train_and_evaluate_model(X, scores_1, "Label_1")
+    train_and_evaluate_model(X, scores_2, "Label_2")
+    train_and_evaluate_model(X, scores_3, "Label_3")
+
+
+# 入力したダジャレに対してモデルのスコアを出力する関数
+def predict_score(input_text, models, w2v_model):
+    # ダジャレをトークン化
+    tokens = input_text.split()
+    # 平均ベクトルを取得
+    input_vector = torch.tensor(get_average_vector(tokens, w2v_model)).float().view(1, -1)
+
+    # 各モデルでスコアを予測
+    with torch.no_grad():
+        for i, model in enumerate(models, start=1):
+            prediction = model(input_vector)
+            rounded_prediction = torch.round(prediction).item()
+            print(f"Model {i} - Predicted Score: {rounded_prediction:.1f}")
+
+# モデルをリストにまとめる
+models = [
+    DajarePredictor(),  # ラベル1のモデル
+    DajarePredictor(),  # ラベル2のモデル
+    DajarePredictor(),  # ラベル3のモデル
+]
+
+# 学習済みパラメータをロード
+for i in range(3):
+    models[i].load_state_dict(torch.load(f'Label_{i+1}_model.pth'))  # 推論時にロード
+
+# 繰り返し入力処理
+while True:
+    input_text = input("Enter a Dajare (or type 'q' to quit): ")
+    if input_text.lower() == 'q':
+        break
+    predict_score(input_text, models, w2v_model)
