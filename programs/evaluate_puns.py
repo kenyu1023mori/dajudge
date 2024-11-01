@@ -95,7 +95,7 @@ class DajarePredictor(nn.Module):
         x = self.fc4(x)
         return x
 
-# 学習と評価を行う関数
+# 学習と評価を行う関数、モデルの保存も
 def train_and_evaluate_model(X, y, label_name):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
@@ -139,7 +139,7 @@ def train_and_evaluate_model(X, y, label_name):
         print(f"{label_name} - Test MAE (rounded): {mae}")
         
     # モデルをファイルに保存
-    torch.save(model.state_dict(), f'{label_name}_model.pth')
+    torch.save(model.state_dict(), f'/home/group4/evaluate_puns/models/{label_name}_model.pth')
 
 # 各ラベルでモデルの学習と評価を行う
 if is_train_and_evaluate:
@@ -171,7 +171,7 @@ models = [
 
 # 学習済みパラメータをロード
 for i in range(3):
-    models[i].load_state_dict(torch.load(f'Label_{i+1}_model.pth'))  # 推論時にロード
+    models[i].load_state_dict(torch.load(f'/home/group4/evaluate_puns/models/Label_{i+1}_model.pth'))  # 推論時にロード
 
 # 繰り返し入力処理
 while True:
