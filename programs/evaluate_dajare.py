@@ -5,9 +5,9 @@ import os
 from gensim.models import Word2Vec
 
 # 必要な変数とパスを設定
-version = "v1.01"
+version = "v1.02"
 load_dir = f"/home/group4/evaluate_dajare/models/{version}"
-word2vec_model_path = "/home/group4/evaluate_dajare/models/word2vec_dajare.model"  # Word2Vecモデルのパスを指定
+word2vec_model_path = "/home/group4/evaluate_dajare/models/word2vec_dajare.model"
 
 # ニューラルネットワークモデルのクラス定義
 class DajarePredictor(nn.Module):
@@ -45,7 +45,7 @@ for label_idx in range(3):
 # Word2Vecモデルをロード
 w2v_model = Word2Vec.load(word2vec_model_path)
 
-# 入力したダジャレに対してモデルのスコアを出力する関数（各フォルドの平均を使用）
+# 入力したダジャレに対してモデルのスコアを出力する関数（各フォールドの平均を使用）
 def predict_score(input_text, models, w2v_model):
     tokens = input_text.split()
     input_vector = torch.tensor(get_average_vector(tokens, w2v_model)).float().view(1, -1)
@@ -55,7 +55,7 @@ def predict_score(input_text, models, w2v_model):
             average_prediction = torch.round(torch.tensor(predictions).mean()).item()
             print(f"Label {label_idx} - Predicted Score: {average_prediction}")
 
-# ユーザー入力処理ループ
+# ユーザー入力処理
 while True:
     input_text = input("Enter a Dajare (or type 'q' to quit): ")
     if input_text.lower() == 'q':

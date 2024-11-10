@@ -82,7 +82,7 @@ def save_metrics(metrics, label_name, version):
 
 # 結果をプロットして保存する関数
 def plot_metrics(metrics, label_name, version, y_mse_range=(0, 1), y_mae_range=(0, 1)):
-        # 平均MSEと平均MAE
+    # 平均MSEと平均MAE
     avg_mse = np.mean(metrics['mse'])
     avg_mae = np.mean(metrics['mae'])
     
@@ -93,7 +93,7 @@ def plot_metrics(metrics, label_name, version, y_mse_range=(0, 1), y_mae_range=(
     plt.subplot(1, 2, 1)
     plt.bar(range(1, len(metrics['mse']) + 1), metrics['mse'], color='lightsteelblue', alpha=0.7)
     plt.axhline(y=avg_mse, color='red', linestyle='--', label=f"Average MSE: {avg_mse:.3f}")
-    plt.ylim(y_mse_range)  # y軸の範囲を統一
+    plt.ylim(y_mse_range)
     plt.xlabel("Fold")
     plt.ylabel("MSE Loss")
     plt.title(f"{label_name} MSE Loss per Fold")
@@ -103,7 +103,7 @@ def plot_metrics(metrics, label_name, version, y_mse_range=(0, 1), y_mae_range=(
     plt.subplot(1, 2, 2)
     plt.bar(range(1, len(metrics['mae']) + 1), metrics['mae'], color='lightsteelblue', alpha=0.7)
     plt.axhline(y=avg_mae, color='red', linestyle='--', label=f"Average MAE: {avg_mae:.3f}")
-    plt.ylim(y_mae_range)  # y軸の範囲を統一
+    plt.ylim(y_mae_range)
     plt.xlabel("Fold")
     plt.ylabel("MAE")
     plt.title(f"{label_name} MAE per Fold")
@@ -170,8 +170,8 @@ def cross_val_train_and_evaluate(X, y, label_name, version, y_mse_range=(0, 1), 
 X = np.array([get_average_vector(sentence, w2v_model) for sentence in sentences])
 
 # 統一されたy軸範囲の指定
-y_mse_range = (0, 1)  # 例：0から1の範囲でMSEを統一
-y_mae_range = (0, 1)  # 例：0から1の範囲でMAEを統一
+y_mse_range = (0, 1)
+y_mae_range = (0, 1)
 
 cross_val_train_and_evaluate(X, scores_1, "Label_1", version, y_mse_range, y_mae_range)
 cross_val_train_and_evaluate(X, scores_2, "Label_2", version, y_mse_range, y_mae_range)
