@@ -18,24 +18,24 @@ INF = 10e8
 limit = 10000
 
 # データの読み込みと前処理
-pun_data = []
+dajare_data = []
 with open(file_path, "r", encoding="utf-8") as file:
     lines = file.readlines()[24:]
     for line in lines:
-        if len(pun_data) >= limit:
+        if len(dajare_data) >= limit:
             break
         parts = line.strip().split(",")
         if len(parts) >= 5:
-            pun_text = str(parts[1].strip())
+            dajare_text = str(parts[1].strip())
             score_1 = float(parts[-4].strip())
             score_2 = float(parts[-3].strip())
             score_3 = float(parts[-2].strip())
-            pun_data.append((pun_text, score_1, score_2, score_3))
+            dajare_data.append((dajare_text, score_1, score_2, score_3))
 
-sentences = [pun[0].split() for pun in pun_data]
-scores_1 = [pun[1] for pun in pun_data]
-scores_2 = [pun[2] for pun in pun_data]
-scores_3 = [pun[3] for pun in pun_data]
+sentences = [dajare[0].split() for dajare in dajare_data]
+scores_1 = [dajare[1] for dajare in dajare_data]
+scores_2 = [dajare[2] for dajare in dajare_data]
+scores_3 = [dajare[3] for dajare in dajare_data]
 
 # Word2Vecモデルのトレーニング
 w2v_model = Word2Vec(sentences, vector_size=100, window=5, min_count=1, workers=4)
