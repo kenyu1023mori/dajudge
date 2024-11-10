@@ -6,12 +6,15 @@ import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import matplotlib.pyplot as plt
 
 # 学習用データパスやパラメータ設定
 file_path = "/home/public/share/MISC/DAJARE/dajare_database_v11.txt"
 version = "v1.01"
-save_dir = f"/home/group4/evaluate_dajare/models/{version}"
-os.makedirs(save_dir, exist_ok=True)
+save_model_dir = f"/home/group4/evaluate_dajare/models/{version}"
+os.makedirs(save_model_dir, exist_ok=True)
+save_metrics_dir = f"/home/group4/evaluate_dajare/metrics/{version}"
+os.makedirs(save_metrics_dir, exist_ok=True)
 
 # 何文使うか
 INF = 10e8
@@ -68,6 +71,41 @@ class DajarePredictor(nn.Module):
         x = self.fc4(x)
         return x
 
+# MSEとMAEの結果を保存する関数
+def save_metrics(metrics, label_name, version):
+    result_file = os.path.join(save_metrics_dir, f"{label_name}_metrics.txt")
+    
+    with open(result_file, "w") as file:
+        file.write(f"{label_name} - Test MSE Losses: {metrics['mse']}\n")
+        file.write(f"{label_name} - Test MAE Scores: {metrics['mae']}\n")
+        file.write(f"{label_name} - Average Test MSE Loss: {np.mean(metrics['mse'])}, Average Test MAE: {np.mean(metrics['mae'])}\n")
+
+# 結果をプロットして保存する関数
+def plot_metrics(metrics, label_name, version):
+    folds = range(1, len(metrics['mse']) + 1)
+    plt.figure(figsize=(10, 5))
+
+    # MSEプロット
+    plt.subplot(1, 2, 1)
+    plt.plot(folds, metrics['mse'], marker='o', label="MSE Loss")
+    plt.xlabel("Fold")
+    plt.ylabel("MSE Loss")
+    plt.title(f"{label_name} MSE Loss per Fold")
+    plt.legend()
+
+    # MAEプロット
+    plt.subplot(1, 2, 2)
+    plt.plot(folds, metrics['mae'], marker='o', color='orange', label="MAE")
+    plt.xlabel("Fold")
+    plt.ylabel("MAE")
+    plt.title(f"{label_name} MAE per Fold")
+    plt.legend()
+
+    # プロットの保存
+    plot_file = os.path.join(save_metrics_dir, f"{label_name}_metrics_plot.png")
+    plt.savefig(plot_file)
+    plt.close()
+
 # 分割交差検証とモデルの保存を行う関数
 def cross_val_train_and_evaluate(X, y, label_name, k=5):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
@@ -110,8 +148,14 @@ def cross_val_train_and_evaluate(X, y, label_name, k=5):
             mae_scores.append(mae)
             print(f"{label_name} - Fold {fold+1}/{k} - Test MSE Loss: {mse_loss}, Test MAE: {mae}")
 
-        torch.save(model.state_dict(), os.path.join(save_dir, f"{label_name}_fold_{fold+1}.pth"))
+        torch.save(model.state_dict(), os.path.join(save_model_dir, f"{label_name}_fold_{fold+1}.pth"))
 
+    print(f"{label_name} - Average Test MSE Loss: {np.mean(mse_losses)}, Average Test MAE: {np.mean(mae_scores)}")
+    
+    # メトリクスの保存とプロット作成
+    metrics = {"mse": mse_losses, "mae": mae_scores}
+    save_metrics(metrics, label_name, version)
+    plot_metrics(metrics, label_name, version)
     print(f"{label_name} - Average Test MSE Loss: {np.mean(mse_losses)}, Average Test MAE: {np.mean(mae_scores)}")
 
 # ベクトル化と学習
