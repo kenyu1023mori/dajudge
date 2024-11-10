@@ -18,7 +18,7 @@ os.makedirs(save_metrics_dir, exist_ok=True)
 
 # 何文使うか
 INF = 10e8
-limit = 10000
+limit = INF
 
 # データの読み込みと前処理
 dajare_data = []
@@ -81,33 +81,41 @@ def save_metrics(metrics, label_name, version):
         file.write(f"{label_name} - Average Test MSE Loss: {np.mean(metrics['mse'])}, Average Test MAE: {np.mean(metrics['mae'])}\n")
 
 # 結果をプロットして保存する関数
-def plot_metrics(metrics, label_name, version):
-    folds = range(1, len(metrics['mse']) + 1)
-    plt.figure(figsize=(10, 5))
+def plot_metrics(metrics, label_name, version, y_mse_range=(0, 1), y_mae_range=(0, 1)):
+        # 平均MSEと平均MAE
+    avg_mse = np.mean(metrics['mse'])
+    avg_mae = np.mean(metrics['mae'])
+    
+    # 棒グラフ
+    plt.figure(figsize=(12, 6))
 
-    # MSEプロット
+    # MSE Lossのプロット
     plt.subplot(1, 2, 1)
-    plt.plot(folds, metrics['mse'], marker='o', label="MSE Loss")
+    plt.bar(range(1, len(metrics['mse']) + 1), metrics['mse'], color='lightsteelblue', alpha=0.7)
+    plt.axhline(y=avg_mse, color='red', linestyle='--', label=f"Average MSE: {avg_mse:.3f}")
+    plt.ylim(y_mse_range)  # y軸の範囲を統一
     plt.xlabel("Fold")
     plt.ylabel("MSE Loss")
     plt.title(f"{label_name} MSE Loss per Fold")
     plt.legend()
 
-    # MAEプロット
+    # MAEのプロット
     plt.subplot(1, 2, 2)
-    plt.plot(folds, metrics['mae'], marker='o', color='orange', label="MAE")
+    plt.bar(range(1, len(metrics['mae']) + 1), metrics['mae'], color='lightsteelblue', alpha=0.7)
+    plt.axhline(y=avg_mae, color='red', linestyle='--', label=f"Average MAE: {avg_mae:.3f}")
+    plt.ylim(y_mae_range)  # y軸の範囲を統一
     plt.xlabel("Fold")
     plt.ylabel("MAE")
     plt.title(f"{label_name} MAE per Fold")
     plt.legend()
 
-    # プロットの保存
-    plot_file = os.path.join(save_metrics_dir, f"{label_name}_metrics_plot.png")
-    plt.savefig(plot_file)
+    # グラフの保存
+    bar_plot_file = os.path.join(save_metrics_dir, f"{label_name}_metrics_bar_plot.png")
+    plt.savefig(bar_plot_file)
     plt.close()
 
 # 分割交差検証とモデルの保存を行う関数
-def cross_val_train_and_evaluate(X, y, label_name, k=5):
+def cross_val_train_and_evaluate(X, y, label_name, version, y_mse_range=(0, 1), y_mae_range=(0, 1), k=5):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
     mse_losses, mae_scores = [], []
 
@@ -161,6 +169,10 @@ def cross_val_train_and_evaluate(X, y, label_name, k=5):
 # ベクトル化と学習
 X = np.array([get_average_vector(sentence, w2v_model) for sentence in sentences])
 
-cross_val_train_and_evaluate(X, scores_1, "Label_1")
-cross_val_train_and_evaluate(X, scores_2, "Label_2")
-cross_val_train_and_evaluate(X, scores_3, "Label_3")
+# 統一されたy軸範囲の指定
+y_mse_range = (0, 1)  # 例：0から1の範囲でMSEを統一
+y_mae_range = (0, 1)  # 例：0から1の範囲でMAEを統一
+
+cross_val_train_and_evaluate(X, scores_1, "Label_1", version, y_mse_range, y_mae_range)
+cross_val_train_and_evaluate(X, scores_2, "Label_2", version, y_mse_range, y_mae_range)
+cross_val_train_and_evaluate(X, scores_3, "Label_3", version, y_mse_range, y_mae_range)
