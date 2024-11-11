@@ -18,8 +18,8 @@ class DajarePredictor(nn.Module):
         self.fc2 = nn.Linear(128, 64)
         self.dropout2 = nn.Dropout(0.3)
         self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, 1)
-    
+        self.fc4 = nn.Linear(32, 5)  # 5クラス出力に変更
+
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = self.dropout1(x)
@@ -51,9 +51,10 @@ def predict_score(input_text, models, w2v_model):
     input_vector = torch.tensor(get_average_vector(tokens, w2v_model)).float().view(1, -1)
     with torch.no_grad():
         for label_idx, label_models in enumerate(models, start=1):
-            predictions = [model(input_vector).item() for model in label_models]
-            average_prediction = torch.round(torch.tensor(predictions).mean()).item()
-            print(f"Label {label_idx} - Predicted Score: {average_prediction}")
+            predictions = [torch.softmax(model(input_vector), dim=1).squeeze() for model in label_models]
+            average_prediction = torch.stack(predictions).mean(dim=0)
+            predicted_class = torch.argmax(average_prediction).item() + 1
+            print(f"Label {label_idx} - Predicted Score: {predicted_class}")
 
 # ユーザー入力処理
 while True:

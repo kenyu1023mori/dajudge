@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 # 学習用データパスやパラメータ設定
 file_path = "/home/public/share/MISC/DAJARE/dajare_database_v11.txt"
-version = "v1.01"
+version = "v1.02"
 save_model_dir = f"/home/group4/evaluate_dajare/models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"/home/group4/evaluate_dajare/metrics/{version}"
@@ -51,7 +51,7 @@ def get_average_vector(words, model, vector_size=100):
     vectors = [model.wv[word] for word in words if word in model.wv]
     return np.mean(vectors, axis=0) if vectors else np.zeros(vector_size)
 
-# ニューラルネットワークモデルのクラス定義
+# ニューラルネットワークモデルのクラス定義 (モデルの出力を5クラスに変更)
 class DajarePredictor(nn.Module):
     def __init__(self):
         super(DajarePredictor, self).__init__()
@@ -60,7 +60,7 @@ class DajarePredictor(nn.Module):
         self.fc2 = nn.Linear(128, 64)
         self.dropout2 = nn.Dropout(0.3)
         self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, 1)
+        self.fc4 = nn.Linear(32, 5)  # 5クラスの出力に変更, もともと(32, 1)
     
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -71,32 +71,33 @@ class DajarePredictor(nn.Module):
         x = self.fc4(x)
         return x
 
+
 # MSEとMAEの結果を保存する関数
 def save_metrics(metrics, label_name, version):
     result_file = os.path.join(save_metrics_dir, f"{label_name}_metrics.txt")
     
     with open(result_file, "w") as file:
-        file.write(f"{label_name} - Test MSE Losses: {metrics['mse']}\n")
+        file.write(f"{label_name} - Test CE Losses: {metrics['ce']}\n")  # 'mse' から 'ce' に変更
         file.write(f"{label_name} - Test MAE Scores: {metrics['mae']}\n")
-        file.write(f"{label_name} - Average Test MSE Loss: {np.mean(metrics['mse'])}, Average Test MAE: {np.mean(metrics['mae'])}\n")
+        file.write(f"{label_name} - Average Test CE Loss: {np.mean(metrics['ce'])}, Average Test MAE: {np.mean(metrics['mae'])}\n")
 
 # 結果をプロットして保存する関数
-def plot_metrics(metrics, label_name, version, y_mse_range=(0, 1), y_mae_range=(0, 1)):
-    # 平均MSEと平均MAE
-    avg_mse = np.mean(metrics['mse'])
+def plot_metrics(metrics, label_name, version, y_ce_range=(0, 5), y_mae_range=(0, 1)):
+    # 平均CE Lossと平均MAE
+    avg_ce = np.mean(metrics['ce'])
     avg_mae = np.mean(metrics['mae'])
     
     # 棒グラフ
     plt.figure(figsize=(12, 6))
 
-    # MSE Lossのプロット
+    # CE Lossのプロット
     plt.subplot(1, 2, 1)
-    plt.bar(range(1, len(metrics['mse']) + 1), metrics['mse'], color='lightsteelblue', alpha=0.7)
-    plt.axhline(y=avg_mse, color='red', linestyle='--', label=f"Average MSE: {avg_mse:.3f}")
-    plt.ylim(y_mse_range)
+    plt.bar(range(1, len(metrics['ce']) + 1), metrics['ce'], color='lightsteelblue', alpha=0.7)
+    plt.axhline(y=avg_ce, color='red', linestyle='--', label=f"Average CE: {avg_ce:.3f}")
+    plt.ylim(y_ce_range)
     plt.xlabel("Fold")
-    plt.ylabel("MSE Loss")
-    plt.title(f"{label_name} MSE Loss per Fold")
+    plt.ylabel("CE Loss")
+    plt.title(f"{label_name} CE Loss per Fold")
     plt.legend()
 
     # MAEのプロット
@@ -114,24 +115,36 @@ def plot_metrics(metrics, label_name, version, y_mse_range=(0, 1), y_mae_range=(
     plt.savefig(bar_plot_file)
     plt.close()
 
+# 重みを計算する関数
+def calculate_weights(y, num_classes=5):
+    class_counts = np.bincount(y, minlength=num_classes + 1)[1:]  # スコア1～5の範囲に限定
+    total = sum(class_counts)
+    weights = torch.tensor([total / count if count > 0 else 0 for count in class_counts], dtype=torch.float32)
+    return weights
+
 # 分割交差検証とモデルの保存を行う関数
 def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
-    mse_losses, mae_scores = [], []
+    ce_losses, mae_scores = [], []  # ce_losses リストを定義
+
+    # 重みを計算
+    weights = calculate_weights(y)
+    criterion = nn.CrossEntropyLoss(weight=weights)
 
     for fold, (train_index, test_index) in enumerate(kf.split(X)):
         X_train, X_test = X[train_index], X[test_index]
         y_train, y_test = np.array(y)[train_index], np.array(y)[test_index]
 
         model = DajarePredictor()
-        criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
-        
-        X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-        y_train_tensor = torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
-        X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
-        y_test_tensor = torch.tensor(y_test, dtype=torch.float32).view(-1, 1)
 
+        # データをテンソルに変換
+        X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
+        y_train_tensor = torch.tensor(y_train - 1, dtype=torch.long)  # CrossEntropy用にラベルをlongに変換, 範囲を0~4に
+        X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
+        y_test_tensor = torch.tensor(y_test - 1, dtype=torch.long)
+
+        # 学習の設定
         epochs, batch_size = 30, 64
         for epoch in range(epochs):
             model.train()
@@ -141,7 +154,8 @@ def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
                 batch_x, batch_y = X_train_tensor[indices], y_train_tensor[indices]
 
                 optimizer.zero_grad()
-                loss = criterion(model(batch_x), batch_y)
+                output = model(batch_x)
+                loss = criterion(output, batch_y)
                 loss.backward()
                 optimizer.step()
 
@@ -149,22 +163,26 @@ def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
         model.eval()
         with torch.no_grad():
             predictions = model(X_test_tensor)
-            mse_loss = criterion(predictions, y_test_tensor).item()
-            mae = torch.mean(torch.abs(torch.round(predictions) - y_test_tensor)).item()
-            
-            mse_losses.append(mse_loss)
-            mae_scores.append(mae)
-            print(f"{label_name} - Fold {fold+1}/{k} - Test MSE Loss: {mse_loss}, Test MAE: {mae}")
+            # CrossEntropyLoss を用いた評価
+            ce_loss = criterion(predictions, y_test_tensor).item()
+            # MAE の計算（予測を最も高いスコアのインデックスに変換してから）
+            _, predicted_labels = torch.max(predictions, dim=1)
+            mae = torch.mean(torch.abs(predicted_labels.float() - y_test_tensor.float())).item()
 
+            ce_losses.append(ce_loss)
+            mae_scores.append(mae)
+            print(f"{label_name} - Fold {fold+1}/{k} - Test CE Loss: {ce_loss}, Test MAE: {mae}")
+
+        # モデルを保存
         torch.save(model.state_dict(), os.path.join(save_model_dir, f"{label_name}_fold_{fold+1}.pth"))
 
-    print(f"{label_name} - Average Test MSE Loss: {np.mean(mse_losses)}, Average Test MAE: {np.mean(mae_scores)}")
-    
+    print(f"{label_name} - Average Test CE Loss: {np.mean(ce_losses)}, Average Test MAE: {np.mean(mae_scores)}")
+
     # メトリクスの保存とプロット作成
-    metrics = {"mse": mse_losses, "mae": mae_scores}
+    metrics = {"ce": ce_losses, "mae": mae_scores}
     save_metrics(metrics, label_name, version)
     plot_metrics(metrics, label_name, version)
-    print(f"{label_name} - Average Test MSE Loss: {np.mean(mse_losses)}, Average Test MAE: {np.mean(mae_scores)}")
+    print(f"{label_name} - Average Test CE Loss: {np.mean(ce_losses)}, Average Test MAE: {np.mean(mae_scores)}")
 
 # ベクトル化と学習
 X = np.array([get_average_vector(sentence, w2v_model) for sentence in sentences])
