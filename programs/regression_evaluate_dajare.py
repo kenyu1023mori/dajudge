@@ -13,7 +13,7 @@ word2vec_model_path = "/home/group4/evaluate_dajare/models/word2vec_dajare.model
 class DajarePredictor(nn.Module):
     def __init__(self):
         super(DajarePredictor, self).__init__()
-        self.fc1 = nn.Linear(100, 128)
+        self.fc1 = nn.Linear(1, 128) # 入力は1次元
         self.dropout1 = nn.Dropout(0.3)
         self.fc2 = nn.Linear(128, 64)
         self.dropout2 = nn.Dropout(0.3)
@@ -30,9 +30,20 @@ class DajarePredictor(nn.Module):
         return x
 
 # ダジャレをベクトル化する関数
-def get_average_vector(words, model, vector_size=100):
+def get_average_similarity(words, model):
+    # モデルに存在する単語のベクトルを取得
     vectors = [model.wv[word] for word in words if word in model.wv]
-    return np.mean(vectors, axis=0) if vectors else np.zeros(vector_size)
+    if len(vectors) < 2:
+        return 0.0  # 単語数が1以下なら類似度は計算できないので0とする
+
+    # 単語ペアごとの類似度を計算
+    similarities = []
+    for vec1, vec2 in combinations(vectors, 2):
+        sim = cosine_similarity([vec1], [vec2])[0][0]
+        similarities.append(sim)
+
+    # 類似度の平均を返す
+    return np.mean(similarities) if similarities else 0.0
 
 # モデルのロード
 models = [[DajarePredictor() for _ in range(5)] for _ in range(3)]
@@ -48,12 +59,17 @@ w2v_model = Word2Vec.load(word2vec_model_path)
 # 入力したダジャレに対してモデルのスコアを出力する関数（各フォールドの平均を使用）
 def predict_score(input_text, models, w2v_model):
     tokens = input_text.split()
-    input_vector = torch.tensor(get_average_vector(tokens, w2v_model)).float().view(1, -1)
+    input_similarity = get_average_similarity(tokens, w2v_model)
+    input_vector = torch.tensor([[input_similarity]], dtype=torch.float32)
+    
     with torch.no_grad():
         for label_idx, label_models in enumerate(models, start=1):
-            predictions = [model(input_vector).item() for model in label_models]
-            average_prediction = torch.round(torch.tensor(predictions).mean()).item()
-            print(f"Label {label_idx} - Predicted Score: {average_prediction}")
+            # softmaxを適用せずに予測値を取得
+            predictions = [model(input_vector).squeeze() for model in label_models]
+            average_prediction = torch.stack(predictions).mean().item()
+            predicted_class = round(average_prediction)  # 四捨五入して整数クラスに変換
+            predicted_class = max(1, min(predicted_class, 5))  # 1〜5の範囲にクリップ
+            print(f"Label {label_idx} - Predicted Score: {predicted_class}")
 
 # ユーザー入力処理
 while True:

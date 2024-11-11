@@ -48,16 +48,26 @@ w2v_model = Word2Vec(sentences, vector_size=100, window=5, min_count=1, workers=
 # 訓練後にモデルを保存する
 w2v_model.save("/home/group4/evaluate_dajare/models/word2vec_dajare.model")
 
-# 駄洒落の平均ベクトルを取得する関数
-def get_average_vector(words, model, vector_size=100):
+def get_average_similarity(words, model):
+    # モデルに存在する単語のベクトルを取得
     vectors = [model.wv[word] for word in words if word in model.wv]
-    return np.mean(vectors, axis=0) if vectors else np.zeros(vector_size)
+    if len(vectors) < 2:
+        return 0.0  # 単語数が1以下なら類似度は計算できないので0とする
 
-# ニューラルネットワークモデルのクラス定義
+    # 単語ペアごとの類似度を計算
+    similarities = []
+    for vec1, vec2 in combinations(vectors, 2):
+        sim = cosine_similarity([vec1], [vec2])[0][0]
+        similarities.append(sim)
+
+    # 類似度の平均を返す
+    return np.mean(similarities) if similarities else 0.0
+
+# ニューラルネットワークモデルのクラス定義 (モデルの出力は1つ)
 class DajarePredictor(nn.Module):
     def __init__(self):
         super(DajarePredictor, self).__init__()
-        self.fc1 = nn.Linear(100, 128)
+        self.fc1 = nn.Linear(1, 128)  # 入力を1次元に変更 (コサイン類似度)
         self.dropout1 = nn.Dropout(0.3)
         self.fc2 = nn.Linear(128, 64)
         self.dropout2 = nn.Dropout(0.3)
@@ -168,9 +178,10 @@ def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
     plot_metrics(metrics, label_name, version)
     print(f"{label_name} - Average Test MSE Loss: {np.mean(mse_losses)}, Average Test MAE: {np.mean(mae_scores)}")
 
-# ベクトル化と学習
-X = np.array([get_average_vector(sentence, w2v_model) for sentence in sentences])
+# 文ごとに単語間類似度の平均を特徴量として取得
+X = np.array([[get_average_similarity(sentence, w2v_model)] for sentence in sentences])  # Xを(サンプル数, 1)に整形
 
+# モデルのトレーニングと評価を実行
 cross_val_train_and_evaluate(X, scores_1, "Label_1", version)
 cross_val_train_and_evaluate(X, scores_2, "Label_2", version)
 cross_val_train_and_evaluate(X, scores_3, "Label_3", version)
