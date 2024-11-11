@@ -12,7 +12,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # 学習用データパスやパラメータ設定
 file_path = "/home/public/share/MISC/DAJARE/dajare_database_v11.txt"
-version = "v1.05"
+version = "v1.06"
 save_model_dir = f"/home/group4/evaluate_dajare/models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"/home/group4/evaluate_dajare/metrics/{version}"
@@ -134,23 +134,25 @@ score_counts = {
     "Label_3": [1473, 53053, 12354, 119, 1]
 }
 
-# 各ラベルごとの重みを計算（頻度の逆数を重みとして使用）
-def calculate_weights(counts):
+# 変更後の calculate_weights_sqrt 関数
+def calculate_weights_sqrt(counts):
     total = sum(counts)
-    weights = [total / count if count > 0 else 0 for count in counts]
-    return weights
+    weights = [np.sqrt(total / count) if count > 0 else 0 for count in counts]
+    # 重みが1になるよう正規化
+    weight_sum = sum(weights)
+    return [w / weight_sum for w in weights]
 
+# label_weights の再定義
 label_weights = {
-    "Label_1": calculate_weights(score_counts["Label_1"]),
-    "Label_2": calculate_weights(score_counts["Label_2"]),
-    "Label_3": calculate_weights(score_counts["Label_3"])
+    "Label_1": calculate_weights_sqrt(score_counts["Label_1"]),
+    "Label_2": calculate_weights_sqrt(score_counts["Label_2"]),
+    "Label_3": calculate_weights_sqrt(score_counts["Label_3"])
 }
 
 # 重み付きMSEの計算を効率化した関数
-def weighted_mse_loss(predictions, targets, label_name):
-    weights = torch.tensor(label_weights[label_name], dtype=torch.float32)
+def weighted_mse_loss(predictions, targets, weights_tensor):
     target_indices = (targets.view(-1) - 1).long()  # スコアをインデックスとして利用
-    sample_weights = weights[target_indices]  # 重みのインデックス参照を利用
+    sample_weights = weights_tensor[target_indices]  # 重みのインデックス参照を利用
     mse = torch.square(predictions - targets.view(-1, 1))
     weighted_mse = (mse.view(-1) * sample_weights).mean()
     return weighted_mse
@@ -159,6 +161,9 @@ def weighted_mse_loss(predictions, targets, label_name):
 def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
     mse_losses, mae_scores = [], []
+
+    # 重みテンソルを事前に作成して一度だけ計算
+    weights_tensor = torch.tensor(label_weights[label_name], dtype=torch.float32)
 
     for fold, (train_index, test_index) in enumerate(kf.split(X)):
         X_train, X_test = X[train_index], X[test_index]
@@ -181,7 +186,7 @@ def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
                 batch_x, batch_y = X_train_tensor[indices], y_train_tensor[indices]
 
                 optimizer.zero_grad()
-                loss = weighted_mse_loss(model(batch_x), batch_y, label_name)
+                loss = weighted_mse_loss(model(batch_x), batch_y, weights_tensor)
                 loss.backward()
                 optimizer.step()
 
@@ -189,7 +194,7 @@ def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
         model.eval()
         with torch.no_grad():
             predictions = model(X_test_tensor)
-            mse_loss = weighted_mse_loss(predictions, y_test_tensor, label_name).item()
+            mse_loss = weighted_mse_loss(predictions, y_test_tensor, weights_tensor).item()
             mae = torch.mean(torch.abs(torch.round(predictions) - y_test_tensor)).item()
             
             mse_losses.append(mse_loss)

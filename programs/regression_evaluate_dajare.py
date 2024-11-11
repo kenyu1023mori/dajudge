@@ -5,7 +5,7 @@ import os
 from gensim.models import Word2Vec
 
 # 必要な変数とパスを設定
-version = "v1.05"
+version = "v1.06"
 load_dir = f"/home/group4/evaluate_dajare/models/{version}"
 word2vec_model_path = "/home/group4/evaluate_dajare/models/word2vec_dajare.model"
 
