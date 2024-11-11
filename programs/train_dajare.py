@@ -115,7 +115,7 @@ def plot_metrics(metrics, label_name, version, y_mse_range=(0, 1), y_mae_range=(
     plt.close()
 
 # 分割交差検証とモデルの保存を行う関数
-def cross_val_train_and_evaluate(X, y, label_name, version, y_mse_range=(0, 1), y_mae_range=(0, 1), k=5):
+def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
     mse_losses, mae_scores = [], []
 
@@ -169,10 +169,6 @@ def cross_val_train_and_evaluate(X, y, label_name, version, y_mse_range=(0, 1), 
 # ベクトル化と学習
 X = np.array([get_average_vector(sentence, w2v_model) for sentence in sentences])
 
-# 統一されたy軸範囲の指定
-y_mse_range = (0, 1)
-y_mae_range = (0, 1)
-
-cross_val_train_and_evaluate(X, scores_1, "Label_1", version, y_mse_range, y_mae_range)
-cross_val_train_and_evaluate(X, scores_2, "Label_2", version, y_mse_range, y_mae_range)
-cross_val_train_and_evaluate(X, scores_3, "Label_3", version, y_mse_range, y_mae_range)
+cross_val_train_and_evaluate(X, scores_1, "Label_1", version)
+cross_val_train_and_evaluate(X, scores_2, "Label_2", version)
+cross_val_train_and_evaluate(X, scores_3, "Label_3", version)
