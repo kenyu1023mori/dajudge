@@ -12,7 +12,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # 学習用データパスやパラメータ設定
 file_path = "/home/public/share/MISC/DAJARE/dajare_database_v11.txt"
-version = "v1.04"
+version = "v1.05"
 save_model_dir = f"/home/group4/evaluate_dajare/models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"/home/group4/evaluate_dajare/metrics/{version}"
@@ -126,7 +126,36 @@ def plot_metrics(metrics, label_name, version, y_mse_range=(0, 1), y_mae_range=(
     plt.savefig(bar_plot_file)
     plt.close()
 
-# 分割交差検証とモデルの保存を行う関数
+
+# 重みを計算するための各スコアの出現頻度
+score_counts = {
+    "Label_1": [868, 29485, 36095, 526, 26],
+    "Label_2": [5880, 21011, 33222, 6638, 249],
+    "Label_3": [1473, 53053, 12354, 119, 1]
+}
+
+# 各ラベルごとの重みを計算（頻度の逆数を重みとして使用）
+def calculate_weights(counts):
+    total = sum(counts)
+    weights = [total / count if count > 0 else 0 for count in counts]
+    return weights
+
+label_weights = {
+    "Label_1": calculate_weights(score_counts["Label_1"]),
+    "Label_2": calculate_weights(score_counts["Label_2"]),
+    "Label_3": calculate_weights(score_counts["Label_3"])
+}
+
+# 重み付きMSEの計算を効率化した関数
+def weighted_mse_loss(predictions, targets, label_name):
+    weights = torch.tensor(label_weights[label_name], dtype=torch.float32)
+    target_indices = (targets.view(-1) - 1).long()  # スコアをインデックスとして利用
+    sample_weights = weights[target_indices]  # 重みのインデックス参照を利用
+    mse = torch.square(predictions - targets.view(-1, 1))
+    weighted_mse = (mse.view(-1) * sample_weights).mean()
+    return weighted_mse
+
+# cross_val_train_and_evaluate 関数内で損失関数を weighted_mse_loss に変更
 def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
     mse_losses, mae_scores = [], []
@@ -136,7 +165,6 @@ def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
         y_train, y_test = np.array(y)[train_index], np.array(y)[test_index]
 
         model = DajarePredictor()
-        criterion = nn.MSELoss()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
         
         X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
@@ -153,7 +181,7 @@ def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
                 batch_x, batch_y = X_train_tensor[indices], y_train_tensor[indices]
 
                 optimizer.zero_grad()
-                loss = criterion(model(batch_x), batch_y)
+                loss = weighted_mse_loss(model(batch_x), batch_y, label_name)
                 loss.backward()
                 optimizer.step()
 
@@ -161,7 +189,7 @@ def cross_val_train_and_evaluate(X, y, label_name, version, k=5):
         model.eval()
         with torch.no_grad():
             predictions = model(X_test_tensor)
-            mse_loss = criterion(predictions, y_test_tensor).item()
+            mse_loss = weighted_mse_loss(predictions, y_test_tensor, label_name).item()
             mae = torch.mean(torch.abs(torch.round(predictions) - y_test_tensor)).item()
             
             mse_losses.append(mse_loss)
