@@ -5,21 +5,20 @@ import os
 from gensim.models import Word2Vec
 
 # 必要な変数とパスを設定
-version = "v1.02"
+version = "v1.03"
 load_dir = f"/home/group4/evaluate_dajare/models/{version}"
 word2vec_model_path = "/home/group4/evaluate_dajare/models/word2vec_dajare.model"
 
-# ニューラルネットワークモデルのクラス定義
 class DajarePredictor(nn.Module):
     def __init__(self):
         super(DajarePredictor, self).__init__()
-        self.fc1 = nn.Linear(100, 128)
+        self.fc1 = nn.Linear(1, 128)  # 入力を1次元に戻す
         self.dropout1 = nn.Dropout(0.3)
         self.fc2 = nn.Linear(128, 64)
         self.dropout2 = nn.Dropout(0.3)
         self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, 5)  # 5クラス出力に変更
-
+        self.fc4 = nn.Linear(32, 5)  # 5クラスの出力に変更
+    
     def forward(self, x):
         x = torch.relu(self.fc1(x))
         x = self.dropout1(x)
@@ -30,9 +29,20 @@ class DajarePredictor(nn.Module):
         return x
 
 # ダジャレをベクトル化する関数
-def get_average_vector(words, model, vector_size=100):
+def get_average_similarity(words, model):
+    # モデルに存在する単語のベクトルを取得
     vectors = [model.wv[word] for word in words if word in model.wv]
-    return np.mean(vectors, axis=0) if vectors else np.zeros(vector_size)
+    if len(vectors) < 2:
+        return 0.0  # 単語数が1以下なら類似度は計算できないので0とする
+
+    # 単語ペアごとの類似度を計算
+    similarities = []
+    for vec1, vec2 in combinations(vectors, 2):
+        sim = cosine_similarity([vec1], [vec2])[0][0]
+        similarities.append(sim)
+
+    # 類似度の平均を返す
+    return np.mean(similarities) if similarities else 0.0
 
 # モデルのロード
 models = [[DajarePredictor() for _ in range(5)] for _ in range(3)]
@@ -48,7 +58,9 @@ w2v_model = Word2Vec.load(word2vec_model_path)
 # 入力したダジャレに対してモデルのスコアを出力する関数（各フォールドの平均を使用）
 def predict_score(input_text, models, w2v_model):
     tokens = input_text.split()
-    input_vector = torch.tensor(get_average_vector(tokens, w2v_model)).float().view(1, -1)
+    input_similarity = get_average_similarity(tokens, w2v_model)
+    input_vector = torch.tensor([[input_similarity]], dtype=torch.float32)
+    
     with torch.no_grad():
         for label_idx, label_models in enumerate(models, start=1):
             predictions = [torch.softmax(model(input_vector), dim=1).squeeze() for model in label_models]
