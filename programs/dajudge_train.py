@@ -11,6 +11,8 @@ from itertools import combinations
 import MeCab
 import pickle  # データのキャッシュ用
 
+# 中間発表時点での進捗
+
 # データパスおよび保存先ディレクトリ設定
 file_path = "/home/public/share/MISC/DAJARE/dajare_database_v11.txt"
 version = "v1.07"

@@ -7,6 +7,8 @@ from itertools import combinations
 from sklearn.metrics.pairwise import cosine_similarity
 import MeCab
 
+# 中間発表時点での進捗
+
 # 必要な変数とパスを設定
 version = "v1.07"
 load_dir = f"/home/group4/evaluate_dajare/models/{version}"
