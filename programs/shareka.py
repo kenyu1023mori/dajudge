@@ -1,6 +1,21 @@
 import MeCab
+import pandas as pd
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
 from collections import Counter
 
+# ダジャレかどうか判別するAI
+# 以下の記事を参照
+# https://qiita.com/fujit33/items/dbfbd7a2aa3858067b6c#shareka%E3%83%80%E3%82%B8%E3%83%A3%E3%83%AC%E5%88%A4%E5%88%A5ai
+'''
+ダジャレデータ1000個
+非ダジャレデータ1000個
+n=3
+===== 精度評価 =====
+正解率 (Accuracy): 0.89
+適合率 (Precision): 0.94
+再現率 (Recall): 0.83
+F1スコア: 0.88
+'''
 class Shareka:
     def __init__(self, sentence, n=3):
         """置き換える文字リストが格納されたクラス変数"""
@@ -45,17 +60,35 @@ class Shareka:
         """駄洒落判定"""
         return self.has_duplicates()
 
-
-# 入力と結果出力部分
+# CSVを読み込み、判定と精度評価
 if __name__ == "__main__":
-    sentence = input("判定する文章を入力してください: ")
-    
-    shareka_instance = Shareka(sentence, n=3)
-    
-    print("\n===== 結果 =====")
-    print(f"入力文（カタカナ変換）: {shareka_instance.kana}")
-    
-    if shareka_instance.dajarewake():
-        print("判定: 駄洒落です。")
-    else:
-        print("判定: 駄洒落ではありません。")
+    # CSVファイルのパス
+    csv_file = "../../data/shareka_test.csv"
+
+    # データの読み込み
+    data = pd.read_csv(csv_file, header=0)
+
+    # ラベルを整数型に変換
+    data['label'] = data['label'].astype(int)
+
+    # 駄洒落判定結果を格納するリスト
+    predictions = []
+
+    for sentence in data["sentence"]:
+        shareka_instance = Shareka(sentence, n=3)
+        predictions.append(int(shareka_instance.dajarewake()))
+
+    # 正解ラベル
+    true_labels = data["label"].tolist()
+
+    # 精度評価
+    accuracy = accuracy_score(true_labels, predictions)
+    precision = precision_score(true_labels, predictions)
+    recall = recall_score(true_labels, predictions)
+    f1 = f1_score(true_labels, predictions)
+
+    print("===== 精度評価 =====")
+    print(f"正解率 (Accuracy): {accuracy:.2f}")
+    print(f"適合率 (Precision): {precision:.2f}")
+    print(f"再現率 (Recall): {recall:.2f}")
+    print(f"F1スコア: {f1:.2f}")
