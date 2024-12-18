@@ -6,8 +6,8 @@ from gensim.models import Word2Vec
 
 # 必要な変数とパスを設定
 version = "v1.03"
-load_dir = f"/home/group4/evaluate_dajare/models/{version}"
-word2vec_model_path = "/home/group4/evaluate_dajare/models/word2vec_dajare.model"
+load_dir = f"../models/{version}"
+word2vec_model_path = "../models/word2vec_dajare.model"
 
 class DajarePredictor(nn.Module):
     def __init__(self):
