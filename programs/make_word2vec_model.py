@@ -34,4 +34,4 @@ tokenized_sentences = [tokenize_sentence(sentence).split() for sentence in sente
 
 # Word2Vecモデルのトレーニング
 w2v_model = Word2Vec(tokenized_sentences, vector_size=100, window=5, min_count=1, workers=4)
-w2v_model.save("/home/group4/evaluate_dajare/models/word2vec_dajare.model")
+w2v_model.save("../models/word2vec_dajare.model")

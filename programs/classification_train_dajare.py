@@ -13,9 +13,9 @@ from sklearn.metrics.pairwise import cosine_similarity
 # 学習用データパスやパラメータ設定
 file_path = "/home/public/share/MISC/DAJARE/dajare_database_v11.txt"
 version = "v1.03"
-save_model_dir = f"/home/group4/evaluate_dajare/models/{version}"
+save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
-save_metrics_dir = f"/home/group4/evaluate_dajare/metrics/{version}"
+save_metrics_dir = f"../metrics/{version}"
 os.makedirs(save_metrics_dir, exist_ok=True)
 
 # 何文使うか
@@ -46,7 +46,7 @@ scores_3 = [dajare[3] for dajare in dajare_data]
 w2v_model = Word2Vec(sentences, vector_size=100, window=5, min_count=1, workers=4)
 
 # 訓練後にモデルを保存する
-w2v_model.save("/home/group4/evaluate_dajare/models/word2vec_dajare.model")
+w2v_model.save("../models/word2vec_dajare.model")
 
 def get_average_similarity(words, model):
     # モデルに存在する単語のベクトルを取得
