@@ -4,10 +4,9 @@ import torch
 import torch.nn as nn
 from transformers import BertJapaneseTokenizer, BertModel
 import MeCab
-import pickle
 
 # 必要な変数とパスを設定
-version = "v1.10"
+version = "v1.11"
 load_dir = f"../models/{version}"
 pretrained_model_name = "cl-tohoku/bert-base-japanese"
 
@@ -32,20 +31,8 @@ class DajarePredictor(nn.Module):
 # モデルのロード
 tokenizer = BertJapaneseTokenizer.from_pretrained(pretrained_model_name)
 bert_model = BertModel.from_pretrained(pretrained_model_name)
-
-# 最も良いモデルを選択
-best_fold = None
-best_mse = float('inf')
-for fold in range(1, 6):
-    metrics_path = os.path.join(load_dir, f"Dajudge_fold_{fold}_metrics.pkl")
-    with open(metrics_path, "rb") as f:
-        metrics = pickle.load(f)
-        if metrics["Validation MSE"] < best_mse:
-            best_mse = metrics["Validation MSE"]
-            best_fold = fold
-
 model = DajarePredictor(bert_model)
-model_path = os.path.join(load_dir, f"Dajudge_fold_{best_fold}.pth")
+model_path = os.path.join(load_dir, "Dajudge_epoch_5.pth")
 model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
 model.eval()
 

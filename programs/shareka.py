@@ -64,11 +64,44 @@ class Shareka:
                      "ほど", "くらい", "ぐらい", "しか", "など", "か", "な", "ね", "よ", "ぞ"]
         return any(particle in self.sentence for particle in particles)
 
+    def to_vowels(self, sentence):
+        """文章を母音に変換"""
+        vowel_map = {
+            'ア': 'ア', 'イ': 'イ', 'ウ': 'ウ', 'エ': 'エ', 'オ': 'オ',
+            'カ': 'ア', 'キ': 'イ', 'ク': 'ウ', 'ケ': 'エ', 'コ': 'オ',
+            'サ': 'ア', 'シ': 'イ', 'ス': 'ウ', 'セ': 'エ', 'ソ': 'オ',
+            'タ': 'ア', 'チ': 'イ', 'ツ': 'ウ', 'テ': 'エ', 'ト': 'オ',
+            'ナ': 'ア', 'ニ': 'イ', 'ヌ': 'ウ', 'ネ': 'エ', 'ノ': 'オ',
+            'ハ': 'ア', 'ヒ': 'イ', 'フ': 'ウ', 'ヘ': 'エ', 'ホ': 'オ',
+            'マ': 'ア', 'ミ': 'イ', 'ム': 'ウ', 'メ': 'エ', 'モ': 'オ',
+            'ヤ': 'ア', 'ユ': 'ウ', 'ヨ': 'オ',
+            'ラ': 'ア', 'リ': 'イ', 'ル': 'ウ', 'レ': 'エ', 'ロ': 'オ',
+            'ワ': 'ア', 'ヲ': 'オ', 'ン': 'ン',
+            'ガ': 'ア', 'ギ': 'イ', 'グ': 'ウ', 'ゲ': 'エ', 'ゴ': 'オ',
+            'ザ': 'ア', 'ジ': 'イ', 'ズ': 'ウ', 'ゼ': 'エ', 'ゾ': 'オ',
+            'ダ': 'ア', 'ヂ': 'イ', 'ヅ': 'ウ', 'デ': 'エ', 'ド': 'オ',
+            'バ': 'ア', 'ビ': 'イ', 'ブ': 'ウ', 'ベ': 'エ', 'ボ': 'オ',
+            'パ': 'ア', 'ピ': 'イ', 'プ': 'ウ', 'ペ': 'エ', 'ポ': 'オ'
+        }
+        return ''.join(vowel_map.get(char, char) for char in sentence)
+
+    def has_vowel_duplicates(self):
+        """母音が一致する部分文字列があるかどうかを判定"""
+        vowel_sentence = self.to_vowels(self.kana)
+        vowel_devided = self.devide(vowel_sentence)
+        if not vowel_devided:
+            return False
+        counter = Counter(vowel_devided)
+        for value in counter.values():
+            if value > 1:
+                return True
+        return False
+
     def dajarewake(self):
         """駄洒落判定"""
         if not self.contains_particle():
             return False
-        return self.has_duplicates()
+        return self.has_duplicates() or self.has_vowel_duplicates()
 
 # CSVを読み込み、判定と精度評価
 if __name__ == "__main__":
