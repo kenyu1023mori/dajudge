@@ -11,10 +11,10 @@ from collections import Counter
 非ダジャレデータ1000個
 n=3
 ===== 精度評価 =====
-正解率 (Accuracy): 0.89
-適合率 (Precision): 0.94
-再現率 (Recall): 0.83
-F1スコア: 0.88
+正解率 (Accuracy): 0.88
+適合率 (Precision): 0.98
+再現率 (Recall): 0.77
+F1スコア: 0.86
 '''
 class Shareka:
     def __init__(self, sentence, n=3):
@@ -55,9 +55,19 @@ class Shareka:
             if value > 1:
                 return True
         return False
+    
+    def contains_particle(self):
+        """文章に助詞が含まれているかどうかを判定"""
+        particles = ["は", "が", "を", "に", "で", "と", "から", "より", "へ", "も", "や", "の",
+                     "ので", "ば", "ても", "でも", "けれど", "けれども", "のに", "て", "ながら",
+                     "し", "たり", "こそ", "さえ", "でも", "だって", "まで", "ばかり", "だけ", 
+                     "ほど", "くらい", "ぐらい", "しか", "など", "か", "な", "ね", "よ", "ぞ"]
+        return any(particle in self.sentence for particle in particles)
 
     def dajarewake(self):
         """駄洒落判定"""
+        if not self.contains_particle():
+            return False
         return self.has_duplicates()
 
 # CSVを読み込み、判定と精度評価
