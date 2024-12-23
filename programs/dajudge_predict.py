@@ -8,7 +8,7 @@ import MeCab
 # 必要な変数とパスを設定
 version = "v1.11"
 load_dir = f"../models/{version}"
-pretrained_model_name = "cl-tohoku/bert-base-japanese"
+pretrained_model_name = 'cl-tohoku/bert-base-japanese-whole-word-masking'
 
 # MeCabの設定
 mecab = MeCab.Tagger("-Owakati")

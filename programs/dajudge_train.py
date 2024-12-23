@@ -20,7 +20,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # BERTトークナイザとモデル
-pretrained_model_name = "cl-tohoku/bert-base-japanese"
+pretrained_model_name = 'cl-tohoku/bert-base-japanese-whole-word-masking'
 tokenizer = BertJapaneseTokenizer.from_pretrained(pretrained_model_name)  # Update tokenizer class
 bert_model = BertModel.from_pretrained(pretrained_model_name).to(device)
 
