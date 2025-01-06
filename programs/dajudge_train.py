@@ -6,10 +6,12 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, random_split
 import numpy as np
 from transformers import BertJapaneseTokenizer, BertModel  # Update import for tokenizer
+import optuna  # Add import for Optuna
+import pandas as pd  # Add import for pandas
 
 # データパスおよび保存先ディレクトリ設定
 dataset_path = "../../data/filtered_dajare_2.csv"
-version = "v1.11"
+version = "v1.17"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -29,7 +31,7 @@ bert_model.gradient_checkpointing_enable()
 
 # ハイパーパラメータの定義
 hyperparameters = {
-    "learning_rate": 0.001,  # Adjusted learning rate
+    "learning_rate": 0.0005,  # Adjusted learning rate
     "num_epochs": 5,  # エポック数
     "dropout_rate": 0.3,  # ドロップアウト率
     "max_length": 64,  # トークンの最大長
@@ -114,8 +116,34 @@ train_loader = DataLoader(train_dataset, batch_size=hyperparameters["batch_size"
 val_loader = DataLoader(val_dataset, batch_size=hyperparameters["batch_size"], shuffle=False)
 test_loader = DataLoader(test_dataset, batch_size=hyperparameters["batch_size"], shuffle=False)
 
+# Optuna objective function
+def objective(trial):
+    # Suggest hyperparameters
+    learning_rate = trial.suggest_loguniform("learning_rate", 1e-5, 1e-3)
+    dropout_rate = trial.suggest_uniform("dropout_rate", 0.1, 0.5)
+    batch_size = trial.suggest_categorical("batch_size", [8, 16, 32])
+    num_epochs = 5  # 固定
+
+    # Update hyperparameters
+    hyperparameters["learning_rate"] = learning_rate
+    hyperparameters["dropout_rate"] = dropout_rate
+    hyperparameters["batch_size"] = batch_size
+    hyperparameters["num_epochs"] = num_epochs
+
+    # Split dataset with new batch size
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+    # Train and evaluate
+    val_mse_loss, val_mae_score, test_mse_loss, test_mae_score = train_and_evaluate(
+        train_loader, val_loader, test_loader, tokenizer, bert_model, "Dajudge", hyperparameters, trial
+    )
+
+    return val_mse_loss
+
 # モデルの訓練と評価
-def train_and_evaluate(train_loader, val_loader, test_loader, tokenizer, bert_model, label_name, hyperparameters):
+def train_and_evaluate(train_loader, val_loader, test_loader, tokenizer, bert_model, label_name, hyperparameters, trial=None):
     learning_rate = hyperparameters["learning_rate"]
     num_epochs = hyperparameters["num_epochs"]
     dropout_rate = hyperparameters["dropout_rate"]
@@ -127,34 +155,40 @@ def train_and_evaluate(train_loader, val_loader, test_loader, tokenizer, bert_mo
     # Mixed Precision Training のスケーラー
     scaler = torch.amp.GradScaler()
 
-    # モデルの訓練
-    for epoch in range(num_epochs):  # エポック数を調整可能
-        print(f"Epoch {epoch + 1}/{num_epochs} 開始")
-        model.train()
-        for batch_idx, (input_ids, attention_mask, scores) in enumerate(train_loader):
-            input_ids, attention_mask, scores = (
-                input_ids.to(device),
-                attention_mask.to(device),
-                scores.to(device).view(-1, 1),
-            )
-            optimizer.zero_grad()
+    try:
+        # モデルの訓練
+        for epoch in range(num_epochs):  # エポック数を調整可能
+            print(f"Epoch {epoch + 1}/{num_epochs} 開始")
+            model.train()
+            for batch_idx, (input_ids, attention_mask, scores) in enumerate(train_loader):
+                input_ids, attention_mask, scores = (
+                    input_ids.to(device),
+                    attention_mask.to(device),
+                    scores.to(device).view(-1, 1),
+                )
+                optimizer.zero_grad()
 
-            # Mixed Precision Training
-            with torch.amp.autocast(device_type='cuda'):
-                predictions = model(input_ids, attention_mask)
-                loss = criterion(predictions, scores)
+                # Mixed Precision Training
+                with torch.amp.autocast(device_type='cuda'):
+                    predictions = model(input_ids, attention_mask)
+                    loss = criterion(predictions, scores)
 
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
 
-            # 進行状況を適度に表示
-            if batch_idx % 100 == 0:
-                print(f"Epoch {epoch + 1}/{num_epochs}, Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item()}")
+                # 進行状況を適度に表示
+                if batch_idx % 100 == 0:
+                    print(f"Epoch {epoch + 1}/{num_epochs}, Batch {batch_idx}/{len(train_loader)}, Loss: {loss.item()}")
 
-        # エポック終了時にモデルを保存
-        torch.save(model.state_dict(), os.path.join(save_model_dir, f"{label_name}_epoch_{epoch + 1}.pth"))
-        print(f"モデル保存: {label_name}_epoch_{epoch + 1}.pth")
+            # エポック終了時にモデルを保存
+            torch.save(model.state_dict(), os.path.join(save_model_dir, f"{label_name}_epoch_{epoch + 1}.pth"))
+            print(f"モデル保存: {label_name}_epoch_{epoch + 1}.pth")
+
+    except KeyboardInterrupt:
+        print("Training interrupted. Saving current model state.")
+        torch.save(model.state_dict(), os.path.join(save_model_dir, f"{label_name}_interrupted.pth"))
+        raise
 
     # 検証
     model.eval()
@@ -208,5 +242,25 @@ def train_and_evaluate(train_loader, val_loader, test_loader, tokenizer, bert_mo
         pickle.dump(metrics, f)
     print(f"{label_name} - Metrics saved")
 
-# 実行
-train_and_evaluate(train_loader, val_loader, test_loader, tokenizer, bert_model, "Dajudge", hyperparameters)
+    if trial:
+        trial.set_user_attr("val_mae_score", val_mae_score)
+        trial.set_user_attr("test_mse_loss", test_mse_loss)
+        trial.set_user_attr("test_mae_score", test_mae_score)
+
+    return val_mse_loss, val_mae_score, test_mse_loss, test_mae_score
+
+# Optuna study
+try:
+    study = optuna.create_study(direction="minimize")
+    study.optimize(objective, n_trials=50)
+except KeyboardInterrupt:
+    print("Optimization interrupted. Saving study.")
+    study.trials_dataframe().to_csv(os.path.join(save_metrics_dir, "optuna_study.csv"))
+
+# Save best hyperparameters to CSV
+best_params = study.best_params
+best_params_df = pd.DataFrame([best_params])
+best_params_df.to_csv(os.path.join(save_metrics_dir, "best_hyperparameters.csv"), index=False)
+
+# Best hyperparameters
+print("Best hyperparameters: ", best_params)
