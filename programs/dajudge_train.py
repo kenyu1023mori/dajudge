@@ -1,33 +1,93 @@
-import numpy as np
 import os
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import matplotlib.pyplot as plt
 from sklearn.model_selection import KFold
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from transformers import BertModel, BertTokenizer
-import pickle
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+import matplotlib.pyplot as plt
 import MeCab
+import pickle
+from transformers import BertTokenizer, BertModel
+import pykakasi
+import fasttext
 
-# データパスおよび保存先
+# データパスと保存ディレクトリ
 file_path = "../../data/count_above_2.csv"
-version = "v1.20"
+version = "v1.21"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
 os.makedirs(save_metrics_dir, exist_ok=True)
 
-# キャッシュ用パス
+# MeCabを初期化
+mecab = MeCab.Tagger("-Owakati")  # 分かち書きモード
+kakasi = pykakasi.kakasi()  # 音韻解析用
+
+# キャッシュファイル
 tokenized_cache_path = "../tokenized_sentences.pkl"
 
-# GPU利用設定
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# fastTextモデルパス
+fasttext_model_path = "../models/cc.ja.300.bin"
+fasttext_model = fasttext.load_model(fasttext_model_path)
 
-# MeCabを初期化
-mecab = MeCab.Tagger("-Owakati")
+# BERTモデルとトークナイザー
+bert_model_name = "cl-tohoku/bert-base-japanese"
+tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+bert_model = BertModel.from_pretrained(bert_model_name)
 
-# 分割済みデータのロードまたは作成
+# 文をBERT埋め込みに変換
+def get_bert_embeddings(sentences, tokenizer, model):
+    embeddings = []
+    for sentence in sentences:
+        inputs = tokenizer(sentence, return_tensors="pt", truncation=True, padding=True, max_length=128)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        embeddings.append(outputs.last_hidden_state.mean(dim=1).squeeze().numpy())
+    return np.array(embeddings)
+
+# fastText埋め込みを取得
+def get_fasttext_embeddings(sentences, model):
+    embeddings = []
+    for sentence in sentences:
+        words = mecab.parse(sentence).strip().split()
+        word_embeddings = [model.get_word_vector(word) for word in words]
+        if word_embeddings:
+            embeddings.append(np.mean(word_embeddings, axis=0))
+        else:
+            embeddings.append(np.zeros(300))
+    return np.array(embeddings)
+
+# 音韻特徴量を生成
+def phonetic_features(sentence):
+    result = kakasi.convert(sentence)
+    romaji = " ".join([item["hepburn"] for item in result])
+    length = len(romaji.split())  # 音節数
+    vowels = sum(1 for char in romaji if char in "aeiou")  # 母音の数
+    consonants = len(romaji.replace(" ", "")) - vowels  # 子音の数
+    return [length, vowels, consonants]
+
+# ニューラルネットワークモデル
+class DajarePredictor(nn.Module):
+    def __init__(self):
+        super(DajarePredictor, self).__init__()
+        input_size = 768 + 3 + 300  # BERT + 音韻特徴量 + fastText
+        self.fc1 = nn.Linear(input_size, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.fc4 = nn.Linear(64, 1)
+        self.dropout = nn.Dropout(0.3)
+
+    def forward(self, x):
+        x = torch.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = torch.relu(self.fc2(x))
+        x = self.dropout(x)
+        x = torch.relu(self.fc3(x))
+        x = self.fc4(x)
+        return x
+
+# 分割済み文リストをキャッシュからロードまたは新規作成
 def load_or_tokenize_sentences(sentences):
     if os.path.exists(tokenized_cache_path):
         print("分割済みデータをロード中...")
@@ -40,58 +100,44 @@ def load_or_tokenize_sentences(sentences):
             pickle.dump(tokenized_sentences, f)
     return tokenized_sentences
 
-# BERT埋め込みを取得（バッチ処理対応）
-def get_bert_embeddings(sentences, tokenizer, model, batch_size=16):
-    model.eval()
-    embeddings = []
-    for i in range(0, len(sentences), batch_size):
-        batch_sentences = sentences[i:i + batch_size]
-        inputs = tokenizer(batch_sentences, return_tensors="pt", truncation=True, padding=True, max_length=128).to(device)
-        with torch.no_grad():
-            outputs = model(**inputs)
-        batch_embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
-        embeddings.extend(batch_embeddings)
-    return np.array(embeddings)
+# データ読み込み
+sentences, scores = [], []
+with open(file_path, "r", encoding="utf-8") as file:
+    for line in file.readlines()[1:]:
+        parts = line.strip().split(",")
+        if len(parts) == 2:
+            sentences.append(parts[0].strip())
+            scores.append(float(parts[1].strip()))
 
-# ニューラルネットワークモデル
-class DajarePredictor(nn.Module):
-    def __init__(self):
-        super(DajarePredictor, self).__init__()
-        self.fc1 = nn.Linear(768, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, 1)
-        self.dropout = nn.Dropout(0.3)
+# 特徴量の生成
+bert_embeddings = get_bert_embeddings(sentences, tokenizer, bert_model)
+phonetic_features_list = np.array([phonetic_features(sentence) for sentence in sentences])
+fasttext_embeddings = get_fasttext_embeddings(sentences, fasttext_model)
+X_combined = np.hstack((bert_embeddings, phonetic_features_list, fasttext_embeddings))
+y = np.array(scores)
 
-    def forward(self, x):
-        x = torch.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = torch.relu(self.fc2(x))
-        x = self.dropout(x)
-        x = torch.relu(self.fc3(x))
-        x = self.fc4(x)
-        return x
-
-# モデルの訓練と評価
-def cross_val_train_and_evaluate(X, y, label_name, k=5, batch_size=16, epochs=10, accumulation_steps=2, verbose=True):
+# モデルを訓練し、評価する関数
+def cross_val_train_and_evaluate(X, y, label_name, k=5, batch_size=16, epochs=10, accumulation_steps=2):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
-    metrics = {"mse": [], "mae": [], "r2": []}
+    mse_losses, mae_scores = [], []
 
     for fold, (train_idx, test_idx) in enumerate(kf.split(X)):
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
 
-        model = DajarePredictor().to(device)
+        model = DajarePredictor()
         optimizer = optim.Adam(model.parameters(), lr=0.001)
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.7)
         criterion = nn.MSELoss()
 
-        # データセットとローダー
-        train_dataset = torch.utils.data.TensorDataset(torch.tensor(X_train, dtype=torch.float32).to(device),
-                                                       torch.tensor(y_train, dtype=torch.float32).view(-1, 1).to(device))
+        X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
+        y_train_tensor = torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
+        X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
+        y_test_tensor = torch.tensor(y_test, dtype=torch.float32).view(-1, 1)
+
+        train_dataset = torch.utils.data.TensorDataset(X_train_tensor, y_train_tensor)
         train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-        # 訓練ループ
+        # モデルの訓練
         for epoch in range(epochs):
             model.train()
             running_loss = 0.0
@@ -102,63 +148,45 @@ def cross_val_train_and_evaluate(X, y, label_name, k=5, batch_size=16, epochs=10
                 loss.backward()
 
                 if (i + 1) % accumulation_steps == 0:
-                    nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)  # 勾配クリッピング
                     optimizer.step()
+                    optimizer.zero_grad()
 
                 running_loss += loss.item()
+                if (i + 1) % 10 == 0:
+                    print(f"Fold {fold+1}/{k}, Epoch {epoch+1}/{epochs}, Step {i+1}, Training Loss: {running_loss / (i + 1)}")
 
-            scheduler.step()
-            if verbose:
-                print(f"Fold {fold+1}/{k}, Epoch {epoch+1}/{epochs}, Training Loss: {running_loss / len(train_loader)}")
-
-        # テスト評価
+        # 評価
         model.eval()
         with torch.no_grad():
-            predictions = model(torch.tensor(X_test, dtype=torch.float32).to(device)).cpu().numpy()
-            mse = mean_squared_error(y_test, predictions)
-            mae = mean_absolute_error(y_test, predictions)
-            r2 = r2_score(y_test, predictions)
+            predictions = model(X_test_tensor)
+            mse_loss = criterion(predictions, y_test_tensor).item()
+            mae_score = torch.mean(torch.abs(predictions - y_test_tensor)).item()
 
-            metrics["mse"].append(mse)
-            metrics["mae"].append(mae)
-            metrics["r2"].append(r2)
+            mse_losses.append(mse_loss)
+            mae_scores.append(mae_score)
+            print(f"{label_name} - Fold {fold+1}/{k} - Test MSE Loss: {mse_loss}, Test MAE: {mae_score}")
 
-            print(f"{label_name} - Fold {fold+1}/{k} - MSE: {mse}, MAE: {mae}, R^2: {r2}")
-
-        # モデル保存
+        # モデルを保存
         torch.save(model.state_dict(), os.path.join(save_model_dir, f"{label_name}_fold_{fold + 1}.pth"))
 
-    # 平均とプロット
-    avg_metrics = {k: np.mean(v) for k, v in metrics.items()}
-    print(f"{label_name} - Average Metrics: {avg_metrics}")
+    avg_mse_loss = np.mean(mse_losses)
+    avg_mae_score = np.mean(mae_scores)
+    print(f"{label_name} - Average Test MSE Loss: {avg_mse_loss}, Average Test MAE: {avg_mae_score}")
 
-    plt.figure(figsize=(12, 6))
-    plt.bar(range(1, k + 1), metrics["mse"], label="MSE")
-    plt.bar(range(1, k + 1), metrics["mae"], label="MAE", alpha=0.7)
+    # 各フォールドごとのlossを棒グラフで保存
+    plt.figure(figsize=(10, 5))
+    plt.bar(range(1, k + 1), mse_losses, tick_label=[f"Fold {i}" for i in range(1, k + 1)])
     plt.xlabel("Fold")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.title(f"{label_name} - Evaluation Metrics per Fold")
-    plt.savefig(os.path.join(save_metrics_dir, f"{label_name}_metrics_per_fold.png"))
+    plt.ylabel("MSE Loss")
+    plt.title(f"{label_name} - MSE Loss per Fold")
+    plt.savefig(os.path.join(save_metrics_dir, f"{label_name}_mse_loss_per_fold.png"))
     plt.close()
 
-    return avg_metrics
+    # MSE, MAEをテキストファイルに保存
+    with open(os.path.join(save_metrics_dir, f"{label_name}_metrics.txt"), "w") as f:
+        f.write(f"{label_name} - Test MSE Losses: {mse_losses}\n")
+        f.write(f"{label_name} - Test MAE Scores: {mae_scores}\n")
+        f.write(f"{label_name} - Average Test MSE Loss: {avg_mse_loss}, Average Test MAE: {avg_mae_score}\n")
 
-# データ準備
-bert_model_name = "cl-tohoku/bert-base-japanese"
-tokenizer = BertTokenizer.from_pretrained(bert_model_name)
-bert_model = BertModel.from_pretrained(bert_model_name).to(device)
-
-sentences, scores = [], []
-with open(file_path, "r", encoding="utf-8") as file:
-    for line in file.readlines()[1:]:
-        parts = line.strip().split(",")
-        if len(parts) == 2:
-            sentences.append(parts[0].strip())
-            scores.append(float(parts[1].strip()))
-
-X = get_bert_embeddings(sentences, tokenizer, bert_model)
-y = np.array(scores)
-
-# 交差検証
-cross_val_train_and_evaluate(X, y, "Dajudge", verbose=True)
+# 交差検証の実行
+cross_val_train_and_evaluate(X_combined, y, "Dajudge")
