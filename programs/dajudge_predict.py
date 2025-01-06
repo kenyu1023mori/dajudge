@@ -2,16 +2,18 @@ import numpy as np
 import torch
 import torch.nn as nn
 import os
-from gensim.models import Word2Vec
-from itertools import combinations
-from sklearn.metrics.pairwise import cosine_similarity
+from transformers import BertModel, BertTokenizer
 import MeCab
 
 # 中間発表時点での進捗に一旦戻してちょい変更
 # 必要な変数とパスを設定
-version = "v1.18"
+version = "v1.19"
 load_dir = f"../models/{version}"
-word2vec_model_path = "../models/word2vec_dajare.model"
+bert_model_name = "cl-tohoku/bert-base-japanese"
+
+# BERTモデルとトークナイザーの初期化
+tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+bert_model = BertModel.from_pretrained(bert_model_name)
 
 # MeCabの設定
 mecab = MeCab.Tagger("-Owakati")  # 単語を分かち書き形式で取得
@@ -20,7 +22,7 @@ mecab = MeCab.Tagger("-Owakati")  # 単語を分かち書き形式で取得
 class DajarePredictor(nn.Module):
     def __init__(self):
         super(DajarePredictor, self).__init__()
-        self.fc1 = nn.Linear(1, 128)
+        self.fc1 = nn.Linear(768, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, 32)
         self.fc4 = nn.Linear(32, 1)
@@ -35,13 +37,12 @@ class DajarePredictor(nn.Module):
         x = self.fc4(x)
         return x
 
-# ダジャレをベクトル化する関数
-def get_average_similarity(words, model):
-    vectors = [model.wv[word] for word in words if word in model.wv]
-    if len(vectors) < 2:
-        return 0.0
-    similarities = [cosine_similarity([v1], [v2])[0][0] for v1, v2 in combinations(vectors, 2)]
-    return np.mean(similarities) if similarities else 0.0
+# 文をBERTの埋め込みに変換する関数
+def get_bert_embedding(sentence, tokenizer, model):
+    inputs = tokenizer(sentence, return_tensors="pt", truncation=True, padding=True, max_length=128)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
 
 # モデルのロード
 models = [DajarePredictor() for _ in range(5)]
@@ -50,15 +51,10 @@ for fold in range(5):
     models[fold].load_state_dict(torch.load(model_path))
     models[fold].eval()
 
-# Word2Vecモデルをロード
-w2v_model = Word2Vec.load(word2vec_model_path)
-
 # 入力したダジャレに対してモデルのスコアを出力する関数
-def predict_score(input_text, models, w2v_model, mecab):
-    tokenized_text = mecab.parse(input_text).strip()
-    tokens = tokenized_text.split()
-    input_similarity = get_average_similarity(tokens, w2v_model)
-    input_vector = torch.tensor([[input_similarity]], dtype=torch.float32)
+def predict_score(input_text, models, tokenizer, bert_model):
+    input_embedding = get_bert_embedding(input_text, tokenizer, bert_model)
+    input_vector = torch.tensor([input_embedding], dtype=torch.float32)
 
     with torch.no_grad():
         predictions = [model(input_vector).squeeze() for model in models]
@@ -73,4 +69,4 @@ while True:
     input_text = input("Enter a Dajare (or type 'q' to quit): ")
     if input_text.lower() == 'q':
         break
-    predict_score(input_text, models, w2v_model, mecab)
+    predict_score(input_text, models, tokenizer, bert_model)

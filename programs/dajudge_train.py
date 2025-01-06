@@ -12,10 +12,10 @@ import MeCab
 import pickle  # データのキャッシュ用
 from transformers import BertModel, BertTokenizer
 
-# 中間発表時点での進捗に一旦戻してちょい変更
+# BERT使って768次元でやる
 # データパスおよび保存先ディレクトリ設定
 file_path = "../../data/count_above_2.csv"
-version = "v1.18"
+version = "v1.19"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -90,7 +90,7 @@ X = get_bert_embeddings(sentences, tokenizer, bert_model)
 y = np.array(scores)
 
 # モデルを訓練し、評価する関数
-def cross_val_train_and_evaluate(X, y, label_name, k=5):
+def cross_val_train_and_evaluate(X, y, label_name, k=5, batch_size=16, epochs=10, accumulation_steps=2):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
     mse_losses, mae_scores = [], []
 
@@ -107,15 +107,26 @@ def cross_val_train_and_evaluate(X, y, label_name, k=5):
         X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
         y_test_tensor = torch.tensor(y_test, dtype=torch.float32).view(-1, 1)
 
+        train_dataset = torch.utils.data.TensorDataset(X_train_tensor, y_train_tensor)
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
         # モデルの訓練
-        for epoch in range(30):
+        for epoch in range(epochs):
             model.train()
-            optimizer.zero_grad()
-            predictions = model(X_train_tensor)
-            loss = criterion(predictions, y_train_tensor)
-            loss.backward()
-            optimizer.step()
-            print(f"Fold {fold+1}/{k}, Epoch {epoch+1}/30, Training Loss: {loss.item()}")
+            running_loss = 0.0
+            for i, (inputs, targets) in enumerate(train_loader):
+                optimizer.zero_grad()
+                predictions = model(inputs)
+                loss = criterion(predictions, targets)
+                loss.backward()
+
+                if (i + 1) % accumulation_steps == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
+
+                running_loss += loss.item()
+                if (i + 1) % 10 == 0:
+                    print(f"Fold {fold+1}/{k}, Epoch {epoch+1}/{epochs}, Step {i+1}, Training Loss: {running_loss / (i + 1)}")
 
         # 評価
         model.eval()
