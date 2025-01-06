@@ -10,6 +10,7 @@ from gensim.models import Word2Vec
 from itertools import combinations
 import MeCab
 import pickle  # データのキャッシュ用
+from transformers import BertModel, BertTokenizer
 
 # 中間発表時点での進捗に一旦戻してちょい変更
 # データパスおよび保存先ディレクトリ設定
@@ -39,25 +40,26 @@ def load_or_tokenize_sentences(sentences):
             pickle.dump(tokenized_sentences, f)
     return tokenized_sentences
 
-# 日本語のword2vecモデルを学習データから作成
-def train_word2vec_model(tokenized_sentences):
-    model = Word2Vec(sentences=tokenized_sentences, vector_size=100, window=5, min_count=1, workers=4)
-    model.save("../models/word2vec_dajare.model")
-    return model
+# BERTモデルとトークナイザーの初期化
+bert_model_name = "cl-tohoku/bert-base-japanese"
+tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+bert_model = BertModel.from_pretrained(bert_model_name)
 
-# 単語間類似度の平均を計算する関数
-def get_average_similarity(tokenized_sentence, model):
-    vectors = [model.wv[word] for word in tokenized_sentence if word in model.wv]
-    if len(vectors) < 2:
-        return 0.0
-    similarities = [cosine_similarity([v1], [v2])[0][0] for v1, v2 in combinations(vectors, 2)]
-    return np.mean(similarities) if similarities else 0.0
+# 文をBERTの埋め込みに変換する関数
+def get_bert_embeddings(sentences, tokenizer, model):
+    embeddings = []
+    for sentence in sentences:
+        inputs = tokenizer(sentence, return_tensors="pt", truncation=True, padding=True, max_length=128)
+        with torch.no_grad():
+            outputs = model(**inputs)
+        embeddings.append(outputs.last_hidden_state.mean(dim=1).squeeze().numpy())
+    return np.array(embeddings)
 
 # ニューラルネットワークモデル
 class DajarePredictor(nn.Module):
     def __init__(self):
         super(DajarePredictor, self).__init__()
-        self.fc1 = nn.Linear(1, 128)
+        self.fc1 = nn.Linear(768, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, 32)
         self.fc4 = nn.Linear(32, 1)
@@ -83,11 +85,8 @@ with open(file_path, "r", encoding="utf-8") as file:
 # 分割済み文リストをキャッシュからロードまたは新規作成
 tokenized_sentences = load_or_tokenize_sentences(sentences)
 
-# word2vecモデルを訓練
-w2v_model = train_word2vec_model(tokenized_sentences)
-
 # 特徴量の計算
-X = np.array([[get_average_similarity(tokens, w2v_model)] for tokens in tokenized_sentences])
+X = get_bert_embeddings(sentences, tokenizer, bert_model)
 y = np.array(scores)
 
 # モデルを訓練し、評価する関数
