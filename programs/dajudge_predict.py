@@ -5,9 +5,8 @@ import os
 from transformers import BertModel, BertTokenizer
 import MeCab
 
-# 中間発表時点での進捗に一旦戻してちょい変更
 # 必要な変数とパスを設定
-version = "v1.19"
+version = "v1.20"
 load_dir = f"../models/{version}"
 bert_model_name = "cl-tohoku/bert-base-japanese"
 
