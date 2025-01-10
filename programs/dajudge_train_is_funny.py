@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, random_split
 import numpy as np
-import pandas as pd  # Add pandas for data manipulation
+import pandas as pd
 from transformers import BertJapaneseTokenizer, BertModel  # Ensure BertModel is imported
 
 # Funnyが13811件、Not Funnyが7380件なのでFunnyの最初の6431件をスキップ
