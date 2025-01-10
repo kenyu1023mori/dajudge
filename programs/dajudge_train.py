@@ -14,8 +14,8 @@ import pykakasi
 import fasttext
 
 # データパスと保存ディレクトリ
-file_path = "../../data/evenly_sampled_dajare.csv"
-version = "v2.0"
+file_path = "../../data/evenly_after_shareka.csv"
+version = "v2.05"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -111,7 +111,7 @@ def load_or_tokenize_sentences(sentences):
 # データ読み込み
 data = pd.read_csv(file_path)
 sentences = data['dajare'].astype(str).tolist()  # 文字列に変換
-scores = (data['score'] * 20).tolist()  # スコアを20倍
+scores = data['score'].tolist()  # スコアをそのまま使用
 
 # 特徴量の生成
 bert_embeddings = get_bert_embeddings(sentences, tokenizer, bert_model)
@@ -128,6 +128,7 @@ y = np.array(scores)
 def cross_val_train_and_evaluate(X, y, label_name, k=5, batch_size=16, epochs=num_epochs, accumulation_steps=2):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
     mse_losses, mae_scores = [], []
+    all_predictions = []
 
     for fold, (train_idx, test_idx) in enumerate(kf.split(X)):
         X_train, X_test = X[train_idx], X[test_idx]
@@ -163,31 +164,44 @@ def cross_val_train_and_evaluate(X, y, label_name, k=5, batch_size=16, epochs=nu
                 if (i + 1) % 10 == 0:
                     print(f"Fold {fold+1}/{k}, Epoch {epoch+1}/{epochs}, Step {i+1}, Training Loss: {running_loss / (i + 1)}")
 
-        # 評価
-        model.eval()
-        with torch.no_grad():
-            predictions = model(X_test_tensor)
-            mse_loss = criterion(predictions, y_test_tensor).item()
-            mae_score = torch.mean(torch.abs(predictions - y_test_tensor)).item()
+            # 評価
+            model.eval()
+            with torch.no_grad():
+                predictions = model(X_test_tensor)
+                mse_loss = criterion(predictions, y_test_tensor).item()
+                mae_score = torch.mean(torch.abs(predictions - y_test_tensor)).item()
 
-            mse_losses.append(mse_loss)
-            mae_scores.append(mae_score)
-            print(f"{label_name} - Fold {fold+1}/{k} - Test MSE Loss: {mse_loss}, Test MAE: {mae_score}")
+                mse_losses.append(mse_loss)
+                mae_scores.append(mae_score)
+                all_predictions.extend(predictions.numpy().flatten())
+                print(f"{label_name} - Fold {fold+1}/{k} - Test MSE Loss: {mse_loss}, Test MAE: {mae_score}")
 
-        # モデルを保存
-        torch.save(model.state_dict(), os.path.join(save_model_dir, f"{label_name}_fold_{fold + 1}.pth"))
+            # モデルを保存
+            torch.save(model.state_dict(), os.path.join(save_model_dir, f"{label_name}_fold_{fold + 1}.pth"))
 
     avg_mse_loss = np.mean(mse_losses)
     avg_mae_score = np.mean(mae_scores)
     print(f"{label_name} - Average Test MSE Loss: {avg_mse_loss}, Average Test MAE: {avg_mae_score}")
 
     # 各フォールドごとのlossを棒グラフで保存
-    plt.figure(figsize=(10, 5))
-    plt.bar(range(1, k + 1), mse_losses, tick_label=[f"Fold {i}" for i in range(1, k + 1)])
+    plt.figure(figsize=(12, 6))
+    plt.bar(range(1, len(mse_losses) + 1), mse_losses, tick_label=[f"Fold {i}" for i in range(1, len(mse_losses) + 1)], color='skyblue')
     plt.xlabel("Fold")
     plt.ylabel("MSE Loss")
     plt.title(f"{label_name} - MSE Loss per Fold")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
     plt.savefig(os.path.join(save_metrics_dir, f"{label_name}_mse_loss_per_fold.png"))
+    plt.close()
+
+    # 予測スコアの分布をヒストグラムで保存
+    plt.figure(figsize=(12, 6))
+    plt.hist(all_predictions, bins=50, edgecolor='k', color='skyblue')
+    plt.xlabel("Predicted Score")
+    plt.ylabel("Frequency")
+    plt.title(f"{label_name} - Predicted Score Distribution")
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_metrics_dir, f"{label_name}_predicted_score_distribution.png"))
     plt.close()
 
     # MSE, MAEをテキストファイルに保存
