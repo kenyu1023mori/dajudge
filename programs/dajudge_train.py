@@ -15,7 +15,7 @@ import fasttext
 
 # データパスと保存ディレクトリ
 file_path = "../../data/evenly_sampled_dajare.csv"
-version = "v1.23"
+version = "v2.0"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -70,16 +70,21 @@ def phonetic_features(sentence):
     consonants = len(romaji.replace(" ", "")) - vowels  # 子音の数
     return [length, vowels, consonants]
 
+# ハイパーパラメータの設定
+learning_rate = 0.0001  # 学習率を小さくする
+num_epochs = 20  # エポック数を増やす
+dropout_rate = 0.5  # ドロップアウト率を調整
+
 # ニューラルネットワークモデル
 class DajarePredictor(nn.Module):
     def __init__(self):
         super(DajarePredictor, self).__init__()
         input_size = 768 + 3 + 300  # BERT + 音韻特徴量 + fastText
-        self.fc1 = nn.Linear(input_size, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 64)
-        self.fc4 = nn.Linear(64, 1)
-        self.dropout = nn.Dropout(0.3)
+        self.fc1 = nn.Linear(input_size, 512)  # ユニット数を増やす
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 1)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -113,10 +118,14 @@ bert_embeddings = get_bert_embeddings(sentences, tokenizer, bert_model)
 phonetic_features_list = np.array([phonetic_features(sentence) for sentence in sentences])
 fasttext_embeddings = get_fasttext_embeddings(sentences, fasttext_model)
 X_combined = np.hstack((bert_embeddings, phonetic_features_list, fasttext_embeddings))
+
+# 特徴量の正規化
+X_combined = (X_combined - np.mean(X_combined, axis=0)) / np.std(X_combined, axis=0)
+
 y = np.array(scores)
 
 # モデルを訓練し、評価する関数
-def cross_val_train_and_evaluate(X, y, label_name, k=5, batch_size=16, epochs=10, accumulation_steps=2):
+def cross_val_train_and_evaluate(X, y, label_name, k=5, batch_size=16, epochs=num_epochs, accumulation_steps=2):
     kf = KFold(n_splits=k, shuffle=True, random_state=42)
     mse_losses, mae_scores = [], []
 
@@ -125,7 +134,7 @@ def cross_val_train_and_evaluate(X, y, label_name, k=5, batch_size=16, epochs=10
         y_train, y_test = y[train_idx], y[test_idx]
 
         model = DajarePredictor()
-        optimizer = optim.Adam(model.parameters(), lr=0.001)
+        optimizer = optim.Adam(model.parameters(), lr=learning_rate)
         criterion = nn.MSELoss()
 
         X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
