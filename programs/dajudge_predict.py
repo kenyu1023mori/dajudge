@@ -72,7 +72,7 @@ def get_fasttext_embeddings(sentence, model):
 # モデルのロード
 model = DajarePredictor()
 model_path = os.path.join(load_dir, "Dajudge_fold_1.pth")
-model.load_state_dict(torch.load(model_path))
+model.load_state_dict(torch.load(model_path, weights_only=True))  # Set weights_only=True to avoid the warning
 model.eval()
 
 # 入力したダジャレに対してモデルのスコアを出力する関数
