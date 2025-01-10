@@ -8,13 +8,14 @@ from sklearn.metrics import mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
 import MeCab
 import pickle
-from transformers import BertTokenizer, BertModel
+import pandas as pd
+from transformers import BertJapaneseTokenizer, BertModel
 import pykakasi
 import fasttext
 
 # データパスと保存ディレクトリ
-file_path = "../../data/count_above_2.csv"
-version = "v1.21"
+file_path = "../../data/evenly_sampled_dajare.csv"
+version = "v1.23"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -33,17 +34,19 @@ fasttext_model = fasttext.load_model(fasttext_model_path)
 
 # BERTモデルとトークナイザー
 bert_model_name = "cl-tohoku/bert-base-japanese"
-tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+tokenizer = BertJapaneseTokenizer.from_pretrained(bert_model_name)
 bert_model = BertModel.from_pretrained(bert_model_name)
 
 # 文をBERT埋め込みに変換
-def get_bert_embeddings(sentences, tokenizer, model):
+def get_bert_embeddings(sentences, tokenizer, model, batch_size=16):
     embeddings = []
-    for sentence in sentences:
-        inputs = tokenizer(sentence, return_tensors="pt", truncation=True, padding=True, max_length=128)
+    for i in range(0, len(sentences), batch_size):
+        batch_sentences = sentences[i:i + batch_size]
+        inputs = tokenizer(batch_sentences, return_tensors="pt", truncation=True, padding=True, max_length=128)
         with torch.no_grad():
             outputs = model(**inputs)
-        embeddings.append(outputs.last_hidden_state.mean(dim=1).squeeze().numpy())
+        batch_embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+        embeddings.extend(batch_embeddings)
     return np.array(embeddings)
 
 # fastText埋め込みを取得
@@ -101,13 +104,9 @@ def load_or_tokenize_sentences(sentences):
     return tokenized_sentences
 
 # データ読み込み
-sentences, scores = [], []
-with open(file_path, "r", encoding="utf-8") as file:
-    for line in file.readlines()[1:]:
-        parts = line.strip().split(",")
-        if len(parts) == 2:
-            sentences.append(parts[0].strip())
-            scores.append(float(parts[1].strip()))
+data = pd.read_csv(file_path)
+sentences = data['dajare'].astype(str).tolist()  # 文字列に変換
+scores = (data['score'] * 20).tolist()  # スコアを20倍
 
 # 特徴量の生成
 bert_embeddings = get_bert_embeddings(sentences, tokenizer, bert_model)
