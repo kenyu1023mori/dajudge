@@ -2,39 +2,31 @@ import numpy as np
 import torch
 import torch.nn as nn
 import os
-from transformers import BertJapaneseTokenizer, BertModel
 import MeCab
-import fasttext
 import pykakasi
+import fasttext
+from transformers import BertJapaneseTokenizer, BertModel
 
 # 必要な変数とパスを設定
-version = "v1.23"
+version = "v2.04"
 load_dir = f"../models/{version}"
-bert_model_name = "cl-tohoku/bert-base-japanese"
 fasttext_model_path = "../models/cc.ja.300.bin"
-
-# BERTモデルとトークナイザーの初期化
-tokenizer = BertJapaneseTokenizer.from_pretrained(bert_model_name)
-bert_model = BertModel.from_pretrained(bert_model_name)
-
-# fastTextモデルのロード
-fasttext_model = fasttext.load_model(fasttext_model_path)
+bert_model_name = "cl-tohoku/bert-base-japanese"
 
 # MeCabの設定
 mecab = MeCab.Tagger("-Owakati")  # 単語を分かち書き形式で取得
-
-# pykakasiの初期化
-kakasi = pykakasi.kakasi()
+kakasi = pykakasi.kakasi()  # 音韻解析用
 
 # ニューラルネットワークモデルのクラス定義
 class DajarePredictor(nn.Module):
     def __init__(self):
         super(DajarePredictor, self).__init__()
-        self.fc1 = nn.Linear(768 + 3 + 300, 256)  # BERT + 音韻特徴量 + fastText
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 64)
-        self.fc4 = nn.Linear(64, 1)
-        self.dropout = nn.Dropout(0.3)
+        input_size = 768 + 3 + 300  # BERT + 音韻特徴量 + fastText
+        self.fc1 = nn.Linear(input_size, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 1)
+        self.dropout = nn.Dropout(0.5)
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -45,23 +37,14 @@ class DajarePredictor(nn.Module):
         x = self.fc4(x)
         return x
 
-# 文をBERTの埋め込みに変換する関数
-def get_bert_embedding(sentence, tokenizer, model):
-    inputs = tokenizer([sentence], return_tensors="pt", truncation=True, padding=True, max_length=128)
-    with torch.no_grad():
-        outputs = model(**inputs)
-    return outputs.last_hidden_state.mean(dim=1).squeeze().numpy()
+# BERTモデルとトークナイザーのロード
+tokenizer = BertJapaneseTokenizer.from_pretrained(bert_model_name)
+bert_model = BertModel.from_pretrained(bert_model_name)
 
-# fastText埋め込みを取得する関数
-def get_fasttext_embedding(sentence, model):
-    words = mecab.parse(sentence).strip().split()
-    word_embeddings = [model.get_word_vector(word) for word in words]
-    if word_embeddings:
-        return np.mean(word_embeddings, axis=0)
-    else:
-        return np.zeros(300)
+# fastTextモデルをロード
+fasttext_model = fasttext.load_model(fasttext_model_path)
 
-# 音韻特徴量を生成する関数
+# 音韻特徴量を生成
 def phonetic_features(sentence):
     result = kakasi.convert(sentence)
     romaji = " ".join([item["hepburn"] for item in result])
@@ -70,30 +53,43 @@ def phonetic_features(sentence):
     consonants = len(romaji.replace(" ", "")) - vowels  # 子音の数
     return [length, vowels, consonants]
 
+# 文をBERT埋め込みに変換
+def get_bert_embeddings(sentences, tokenizer, model):
+    inputs = tokenizer(sentences, return_tensors="pt", truncation=True, padding=True, max_length=128)
+    with torch.no_grad():
+        outputs = model(**inputs)
+    return outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+
+# fastText埋め込みを取得
+def get_fasttext_embeddings(sentence, model):
+    words = mecab.parse(sentence).strip().split()
+    word_embeddings = [model.get_word_vector(word) for word in words]
+    if word_embeddings:
+        return np.mean(word_embeddings, axis=0)
+    else:
+        return np.zeros(300)
+
 # モデルのロード
-models = [DajarePredictor() for _ in range(5)]
-for fold in range(5):
-    model_path = os.path.join(load_dir, f"Dajudge_fold_{fold+1}.pth")
-    models[fold].load_state_dict(torch.load(model_path, weights_only=True))
-    models[fold].eval()
+model = DajarePredictor()
+model_path = os.path.join(load_dir, "Dajudge_fold_1.pth")
+model.load_state_dict(torch.load(model_path))
+model.eval()
 
 # 入力したダジャレに対してモデルのスコアを出力する関数
-def predict_score(input_text, models, tokenizer, bert_model, fasttext_model):
-    bert_embedding = get_bert_embedding(input_text, tokenizer, bert_model)
-    fasttext_embedding = get_fasttext_embedding(input_text, fasttext_model)
-    phonetic_feature = phonetic_features(input_text)
-    input_vector = torch.tensor([np.hstack((bert_embedding, phonetic_feature, fasttext_embedding))], dtype=torch.float32)
+def predict_score(input_text, model, tokenizer, bert_model, fasttext_model, mecab, kakasi):
+    bert_embedding = get_bert_embeddings([input_text], tokenizer, bert_model)
+    phonetic_feature = np.array([phonetic_features(input_text)])
+    fasttext_embedding = np.array([get_fasttext_embeddings(input_text, fasttext_model)])
+    input_vector = np.hstack((bert_embedding, phonetic_feature, fasttext_embedding))
+    input_tensor = torch.tensor(input_vector, dtype=torch.float32)
 
     with torch.no_grad():
-        predictions = [model(input_vector).squeeze() for model in models]
-        average_prediction = torch.stack(predictions).mean().item()
-        predicted_class = max(1, min(average_prediction, 100))  # 100点満点に対応
-
-        print(f"Predicted Score: {predicted_class}")
+        prediction = model(input_tensor).squeeze().item()
+        print(f"Predicted Score: {prediction}")
 
 # ユーザー入力処理
 while True:
     input_text = input("Enter a Dajare (or type 'q' to quit): ")
     if input_text.lower() == 'q':
         break
-    predict_score(input_text, models, tokenizer, bert_model, fasttext_model)
+    predict_score(input_text, model, tokenizer, bert_model, fasttext_model, mecab, kakasi)
