@@ -8,7 +8,7 @@ import fasttext
 from transformers import BertJapaneseTokenizer, BertModel
 
 # 必要な変数とパスを設定
-version = "v2.09"  # Update version to match dajudge_train.py
+version = "v2.10"
 load_dir = f"../models/{version}"
 fasttext_model_path = "../models/cc.ja.300.bin"
 bert_model_name = "cl-tohoku/bert-base-japanese"
@@ -78,7 +78,7 @@ def get_fasttext_embeddings(sentence, model):
 # モデルのロード
 model = DajarePredictor()
 model_path = os.path.join(load_dir, "Dajare.pth")  # Update model path to match dajudge_train.py
-model.load_state_dict(torch.load(model_path))  # Remove weights_only=True
+model.load_state_dict(torch.load(model_path, weights_only=True))  # Set weights_only=True to avoid the warning
 model.eval()
 
 # 入力したダジャレに対してモデルのスコアを出力する関数
