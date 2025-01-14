@@ -8,7 +8,7 @@ import fasttext
 from transformers import BertJapaneseTokenizer, BertModel
 
 # 必要な変数とパスを設定
-version = "v2.04"
+version = "v2.09"  # Update version to match dajudge_train.py
 load_dir = f"../models/{version}"
 fasttext_model_path = "../models/cc.ja.300.bin"
 bert_model_name = "cl-tohoku/bert-base-japanese"
@@ -22,11 +22,13 @@ class DajarePredictor(nn.Module):
     def __init__(self):
         super(DajarePredictor, self).__init__()
         input_size = 768 + 3 + 300  # BERT + 音韻特徴量 + fastText
-        self.fc1 = nn.Linear(input_size, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 1)
+        self.fc1 = nn.Linear(input_size, 1024)
+        self.fc2 = nn.Linear(1024, 512)
+        self.fc3 = nn.Linear(512, 256)
+        self.fc4 = nn.Linear(256, 128)
+        self.fc5 = nn.Linear(128, 1)
         self.dropout = nn.Dropout(0.5)
+        self.sigmoid = nn.Sigmoid()  # Add sigmoid activation
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -34,7 +36,11 @@ class DajarePredictor(nn.Module):
         x = torch.relu(self.fc2(x))
         x = self.dropout(x)
         x = torch.relu(self.fc3(x))
-        x = self.fc4(x)
+        x = self.dropout(x)
+        x = torch.relu(self.fc4(x))
+        x = self.fc5(x)
+        x = self.sigmoid(x)  # Apply sigmoid activation
+        # ToDo: ここおかしいかも
         return x
 
 # BERTモデルとトークナイザーのロード
@@ -71,8 +77,8 @@ def get_fasttext_embeddings(sentence, model):
 
 # モデルのロード
 model = DajarePredictor()
-model_path = os.path.join(load_dir, "Dajudge_fold_1.pth")
-model.load_state_dict(torch.load(model_path, weights_only=True))  # Set weights_only=True to avoid the warning
+model_path = os.path.join(load_dir, "Dajare.pth")  # Update model path to match dajudge_train.py
+model.load_state_dict(torch.load(model_path))  # Remove weights_only=True
 model.eval()
 
 # 入力したダジャレに対してモデルのスコアを出力する関数
@@ -85,7 +91,7 @@ def predict_score(input_text, model, tokenizer, bert_model, fasttext_model, meca
 
     with torch.no_grad():
         prediction = model(input_tensor).squeeze().item()
-        print(f"Predicted Score: {prediction}")
+        print(f"Predicted Score: {prediction * 100}")
 
 # ユーザー入力処理
 while True:
