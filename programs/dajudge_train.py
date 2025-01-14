@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import r2_score, mean_squared_error  # 変更
 import matplotlib.pyplot as plt
 import MeCab
 import pickle
@@ -144,9 +144,10 @@ def objective(trial):
     model.eval()
     with torch.no_grad():
         val_predictions = model(X_val_tensor)
-        val_mse_loss = nn.MSELoss()(val_predictions, y_val_tensor).item()
+        val_rmse_loss = mean_squared_error(y_val_tensor.numpy(), val_predictions.numpy(), squared=False)
+        val_r2 = r2_score(y_val_tensor.numpy(), val_predictions.numpy())
 
-    return val_mse_loss
+    return val_rmse_loss
 
 # Optunaによるハイパーパラメータ探索
 study = optuna.create_study(direction="minimize")
@@ -183,7 +184,7 @@ train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size,
 
 train_losses = []
 val_losses = []
-val_maes = []
+val_r2_scores = []
 
 for epoch in range(epochs):
     model.train()
@@ -202,11 +203,11 @@ for epoch in range(epochs):
     model.eval()
     with torch.no_grad():
         val_predictions = model(X_val_tensor)
-        val_mse_loss = nn.MSELoss()(val_predictions, y_val_tensor).item()
-        val_mae_score = mean_absolute_error(y_val_tensor.numpy(), val_predictions.numpy())
-        val_losses.append(val_mse_loss)
-        val_maes.append(val_mae_score)
-        print(f"Epoch {epoch+1}, Training Loss: {epoch_train_loss}, Validation MSE Loss: {val_mse_loss}, Validation MAE: {val_mae_score}")
+        val_rmse_loss = mean_squared_error(y_val_tensor.numpy(), val_predictions.numpy(), squared=False)
+        val_r2_score = r2_score(y_val_tensor.numpy(), val_predictions.numpy())
+        val_losses.append(val_rmse_loss)
+        val_r2_scores.append(val_r2_score)
+        print(f"Epoch {epoch+1}, Training Loss: {epoch_train_loss}, Validation RMSE: {val_rmse_loss}, Validation R^2: {val_r2_score}")
 
 torch.save(model.state_dict(), os.path.join(save_model_dir, "Dajare.pth"))
 
@@ -214,9 +215,9 @@ torch.save(model.state_dict(), os.path.join(save_model_dir, "Dajare.pth"))
 model.eval()
 with torch.no_grad():
     test_predictions = model(X_test_tensor)
-    test_mse_loss = nn.MSELoss()(test_predictions, y_test_tensor).item()
-    test_mae_score = mean_absolute_error(y_test_tensor.numpy(), test_predictions.numpy())
-    print(f"Test MSE Loss: {test_mse_loss}, Test MAE: {test_mae_score}")
+    test_rmse_loss = mean_squared_error(y_test_tensor.numpy(), test_predictions.numpy(), squared=False)
+    test_r2_score = r2_score(y_test_tensor.numpy(), test_predictions.numpy())
+    print(f"Test RMSE: {test_rmse_loss}, Test R^2: {test_r2_score}")
 
 # 予測スコアの分布をヒストグラムで保存
 plt.figure(figsize=(12, 6))
@@ -239,8 +240,8 @@ plt.close()
 
 # 損失関数の推移を棒グラフに出力
 plt.figure(figsize=(12, 6))
-plt.plot(range(1, epochs + 1), train_losses, label='Training Loss', color='orange')
-plt.plot(range(1, epochs + 1), val_losses, label='Validation MSE Loss', color='skyblue')
+plt.plot(range(1, epochs + 1),n_losses, label='Training Loss', color='orange')
+plt.plot(range(1, epochs + 1), val_losses, label='Validation RMSE', color='skyblue')
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
 plt.title('Training and Validation Loss Over Epochs')
@@ -252,4 +253,4 @@ plt.close()
 # 損失関数の推移をテキストとして保存
 with open(os.path.join(save_metrics_dir, "Dajare_loss.txt"), "w") as f:
     for epoch, (train_loss, val_loss) in enumerate(zip(train_losses, val_losses), 1):
-        f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation MSE Loss: {val_loss}, Validation MAE: {val_maes[epoch-1]}\n")
+        f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation RMSE: {val_loss}, Validation R^2: {val_r2_scores[epoch-1]}\n")
