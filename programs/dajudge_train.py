@@ -16,7 +16,7 @@ import optuna  # Optunaをインポート
 
 # データパスと保存ディレクトリ
 file_path = "../../data/evenly_after_shareka.csv"
-version = "v2.12"
+version = "v2.13"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -108,6 +108,7 @@ X_train, X_temp, y_train, y_temp = train_test_split(X_combined, y, test_size=0.2
 X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
 
 # Optunaの目的関数
+"""
 def objective(trial):
     hidden_sizes = [
         trial.suggest_int("hidden_size1", 256, 1024),
@@ -167,6 +168,14 @@ dropout_rate = best_params["dropout_rate"]
 learning_rate = best_params["learning_rate"]
 batch_size = best_params["batch_size"]
 epochs = best_params["epochs"]
+"""
+
+# 手動でパラメータを指定
+hidden_sizes = [761, 368, 94, 112]
+dropout_rate = 0.4567045577962901
+learning_rate = 0.0005650662190333565
+batch_size = 47
+epochs = 47
 
 model = DajarePredictor(input_size=1071, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
 optimizer = optim.Adam(model.parameters(), lr=learning_rate)
@@ -240,7 +249,7 @@ plt.close()
 
 # 損失関数の推移を棒グラフに出力
 plt.figure(figsize=(12, 6))
-plt.plot(range(1, epochs + 1),n_losses, label='Training Loss', color='orange')
+plt.plot(range(1, epochs + 1), train_losses, label='Training Loss', color='orange')
 plt.plot(range(1, epochs + 1), val_losses, label='Validation RMSE', color='skyblue')
 plt.xlabel('Epoch')
 plt.ylabel('Loss')
