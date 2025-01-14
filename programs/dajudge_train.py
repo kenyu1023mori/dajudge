@@ -15,7 +15,7 @@ import fasttext
 
 # データパスと保存ディレクトリ
 file_path = "../../data/evenly_after_shareka.csv"
-version = "v2.10"
+version = "v2.12"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -111,6 +111,7 @@ X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, r
 def train_and_evaluate(X_train, y_train, X_val, y_val, X_test, y_test, label_name, batch_size=16, epochs=20, learning_rate=0.0001):
     model = DajarePredictor()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    # ToDo: 損失関数はHuber Loss、要検討
     criterion = nn.HuberLoss()
 
     X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
@@ -123,17 +124,23 @@ def train_and_evaluate(X_train, y_train, X_val, y_val, X_test, y_test, label_nam
     train_dataset = torch.utils.data.TensorDataset(X_train_tensor, y_train_tensor)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
+    train_losses = []
     val_losses = []
     val_maes = []
 
     for epoch in range(epochs):
         model.train()
+        epoch_train_loss = 0
         for inputs, targets in train_loader:
             optimizer.zero_grad()
             predictions = model(inputs)
             loss = criterion(predictions, targets)
             loss.backward()
             optimizer.step()
+            epoch_train_loss += loss.item()
+
+        epoch_train_loss /= len(train_loader)
+        train_losses.append(epoch_train_loss)
 
         model.eval()
         with torch.no_grad():
@@ -142,7 +149,7 @@ def train_and_evaluate(X_train, y_train, X_val, y_val, X_test, y_test, label_nam
             val_mae_score = mean_absolute_error(y_val_tensor.numpy(), val_predictions.numpy())
             val_losses.append(val_mse_loss)
             val_maes.append(val_mae_score)
-            print(f"Epoch {epoch+1}, Validation MSE Loss: {val_mse_loss}, Validation MAE: {val_mae_score}")
+            print(f"Epoch {epoch+1}, Training Loss: {epoch_train_loss}, Validation MSE Loss: {val_mse_loss}, Validation MAE: {val_mae_score}")
 
     torch.save(model.state_dict(), os.path.join(save_model_dir, f"{label_name}.pth"))
 
@@ -156,28 +163,38 @@ def train_and_evaluate(X_train, y_train, X_val, y_val, X_test, y_test, label_nam
 
     # 予測スコアの分布をヒストグラムで保存
     plt.figure(figsize=(12, 6))
-    plt.hist(test_predictions.numpy(), bins=50, edgecolor='k', color='skyblue')
-    plt.xlabel("Predicted Score")
+    plt.hist(test_predictions.numpy(), bins=50, edgecolor='k', color='skyblue', alpha=0.7, label='Predicted')
+    plt.hist(y_test_tensor.numpy(), bins=50, edgecolor='k', color='orange', alpha=0.5, label='True')
+
+    # x軸の目盛りを0.1刻みに設定
+    min_score = min(test_predictions.min().item(), y_test_tensor.min().item())  # 最小予測値
+    max_score = max(test_predictions.max().item(), y_test_tensor.max().item())  # 最大予測値
+    ticks = np.arange(np.floor(min_score * 10) / 10, np.ceil(max_score * 10) / 10 + 0.1, 0.1)
+    plt.xticks(ticks)  # 目盛りを設定
+
+    plt.xlabel("Score")
     plt.ylabel("Frequency")
-    plt.title(f"{label_name} - Predicted Score Distribution")
+    plt.title(f"{label_name} - Score Distribution")
+    plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(save_metrics_dir, f"{label_name}_predicted_score_distribution.png"))
+    plt.savefig(os.path.join(save_metrics_dir, f"{label_name}_score_distribution.png"))
     plt.close()
 
     # 損失関数の推移を棒グラフに出力
     plt.figure(figsize=(12, 6))
+    plt.plot(range(1, epochs + 1), train_losses, label='Training Loss', color='orange')
     plt.plot(range(1, epochs + 1), val_losses, label='Validation MSE Loss', color='skyblue')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
-    plt.title('Validation Loss Over Epochs')
+    plt.title('Training and Validation Loss Over Epochs')
     plt.legend()
     plt.tight_layout()
-    plt.savefig(os.path.join(save_metrics_dir, f"{label_name}_validation_loss.png"))
+    plt.savefig(os.path.join(save_metrics_dir, f"{label_name}_loss.png"))
     plt.close()
 
     # 損失関数の推移をテキストとして保存
-    with open(os.path.join(save_metrics_dir, f"{label_name}_validation_loss.txt"), "w") as f:
-        for epoch, loss in enumerate(val_losses, 1):
-            f.write(f"Epoch {epoch}: Validation MSE Loss: {loss}, Validation MAE: {val_maes[epoch-1]}\n")
+    with open(os.path.join(save_metrics_dir, f"{label_name}_loss.txt"), "w") as f:
+        for epoch, (train_loss, val_loss) in enumerate(zip(train_losses, val_losses), 1):
+            f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation MSE Loss: {val_loss}, Validation MAE: {val_maes[epoch-1]}\n")
 
 train_and_evaluate(X_train, y_train, X_val, y_val, X_test, y_test, "Dajare")
