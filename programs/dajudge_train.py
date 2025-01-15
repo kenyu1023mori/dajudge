@@ -3,18 +3,15 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+from sklearn.model_selection import train_test_split, KFold
+from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score, precision_score, recall_score, f1_score
 import matplotlib.pyplot as plt
 import MeCab
-import pickle
 import pandas as pd
 from transformers import BertJapaneseTokenizer, BertModel
 import pykakasi
 import fasttext
 import optuna
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-from sklearn.model_selection import KFold
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
@@ -28,8 +25,7 @@ os.makedirs(save_metrics_dir, exist_ok=True)
 mecab = MeCab.Tagger("-Owakati")
 kakasi = pykakasi.kakasi()
 
-# キャッシュファイルとfastTextモデル
-tokenized_cache_path = "../tokenized_sentences.pkl"
+# fastTextモデル
 fasttext_model_path = "../models/cc.ja.300.bin"
 fasttext_model = fasttext.load_model(fasttext_model_path)
 
@@ -112,7 +108,6 @@ X_train, X_test, y_train, y_test = train_test_split(X_combined, y, test_size=0.2
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
 # Optunaの目的関数
-
 def objective(trial):
     hidden_sizes = [
         trial.suggest_int("hidden_size1", 128, 512),
@@ -325,11 +320,10 @@ plt.figure(figsize=(12, 6))
 plt.hist(test_predictions.numpy(), bins=50, edgecolor='k', color='skyblue', alpha=0.7, label='Predicted')
 plt.hist(y_test_tensor.numpy(), bins=50, edgecolor='k', color='orange', alpha=0.5, label='True')
 
-# x軸の目盛りを0.1刻みに設定
-min_score = min(test_predictions.min().item(), y_test_tensor.min().item())  # 最小予測値
-max_score = max(test_predictions.max().item(), y_test_tensor.max().item())  # 最大予測値
+min_score = min(test_predictions.min().item(), y_test_tensor.min().item())
+max_score = max(test_predictions.max().item(), y_test_tensor.max().item())
 ticks = np.arange(np.floor(min_score * 10) / 10, np.ceil(max_score * 10) / 10 + 0.1)
-plt.xticks(ticks)  # 目盛りを設定
+plt.xticks(ticks)
 
 plt.xlabel("Score")
 plt.ylabel("Frequency")
