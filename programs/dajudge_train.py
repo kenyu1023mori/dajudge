@@ -14,10 +14,11 @@ import pykakasi
 import fasttext
 import optuna  # Optunaをインポート
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score  # 追加
+from sklearn.model_selection import KFold  # 追加
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.00"
+version = "v3.01"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -105,8 +106,10 @@ X_combined = (X_combined - np.mean(X_combined, axis=0)) / np.std(X_combined, axi
 y = (np.array(scores) - 1) / 4.0  # スコアを1～5から0～1に正規化
 
 # データセットの分割
-X_train, X_temp, y_train, y_temp = train_test_split(X_combined, y, test_size=0.2, random_state=42)
-X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42)
+X_train, X_test, y_train, y_test = train_test_split(X_combined, y, test_size=0.2, random_state=42)
+
+# 5分割交差検証の設定
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
 # Optunaの目的関数
 
@@ -126,10 +129,13 @@ def objective(trial):
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()  # 損失関数をMSEに変更
 
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
-    X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
-    y_val_tensor = torch.tensor(y_val, dtype=torch.float32).view(-1, 1)
+    # データを訓練データと検証データに分割
+    X_train_fold, X_val_fold, y_train_fold, y_val_fold = train_test_split(X_train, y_train, test_size=0.2, random_state=trial.suggest_int("split_seed", 0, 10000))
+
+    X_train_tensor = torch.tensor(X_train_fold, dtype=torch.float32)
+    y_train_tensor = torch.tensor(y_train_fold, dtype=torch.float32).view(-1, 1)
+    X_val_tensor = torch.tensor(X_val_fold, dtype=torch.float32)
+    y_val_tensor = torch.tensor(y_val_fold, dtype=torch.float32).view(-1, 1)
 
     train_dataset = torch.utils.data.TensorDataset(X_train_tensor, y_train_tensor)
     train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -178,52 +184,106 @@ batch_size = 47
 epochs = 47
 """
 
-model = DajarePredictor(input_size=1071, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
-optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-criterion = nn.MSELoss()  # 損失関数をMSEに変更
+# 交差検証の結果を保存するリスト
+all_train_losses = []
+all_val_losses = []
+all_val_mae_losses = []
+best_fold = None
+best_val_rmse = float('inf')
 
-X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-y_train_tensor = torch.tensor(y_train, dtype=torch.float32).view(-1, 1)
-X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
-y_val_tensor = torch.tensor(y_val, dtype=torch.float32).view(-1, 1)
-X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
-y_test_tensor = torch.tensor(y_test, dtype=torch.float32).view(-1, 1)
+for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
+    print(f"Fold {fold + 1}")
+    
+    X_train_fold, X_val_fold = X_train[train_index], X_train[val_index]
+    y_train_fold, y_val_fold = y_train[train_index], y_train[val_index]
 
-train_dataset = torch.utils.data.TensorDataset(X_train_tensor, y_train_tensor)
-train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    model = DajarePredictor(input_size=1071, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    criterion = nn.MSELoss()  # 損失関数をMSEに変更
 
-train_losses = []
-val_losses = []
-val_mae_losses = []  # MAEの損失関数の推移を保存するリスト
+    X_train_tensor = torch.tensor(X_train_fold, dtype=torch.float32)
+    y_train_tensor = torch.tensor(y_train_fold, dtype=torch.float32).view(-1, 1)
+    X_val_tensor = torch.tensor(X_val_fold, dtype=torch.float32)
+    y_val_tensor = torch.tensor(y_val_fold, dtype=torch.float32).view(-1, 1)
 
-for epoch in range(epochs):
-    model.train()
-    epoch_train_loss = 0
-    for inputs, targets in train_loader:
-        optimizer.zero_grad()
-        predictions = model(inputs)
-        loss = torch.sqrt(criterion(predictions, targets))  # RMSEを計算
-        loss.backward()
-        optimizer.step()
-        epoch_train_loss += loss.item()
+    train_dataset = torch.utils.data.TensorDataset(X_train_tensor, y_train_tensor)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
-    epoch_train_loss /= len(train_loader)
-    train_losses.append(epoch_train_loss)
+    train_losses = []
+    val_losses = []
+    val_mae_losses = []  # MAEの損失関数の推移を保存するリスト
 
-    model.eval()
-    with torch.no_grad():
-        val_predictions = model(X_val_tensor)
-        val_rmse_loss = mean_squared_error(y_val_tensor.numpy(), val_predictions.numpy(), squared=False)
-        val_mae_loss = mean_absolute_error(y_val_tensor.numpy(), val_predictions.numpy())  # MAEを計算
-        val_losses.append(val_rmse_loss)
-        val_mae_losses.append(val_mae_loss)
-        print(f"Epoch {epoch+1}, Training Loss: {epoch_train_loss}, Validation RMSE: {val_rmse_loss}, Validation MAE: {val_mae_loss}")
+    for epoch in range(epochs):
+        model.train()
+        epoch_train_loss = 0
+        for inputs, targets in train_loader:
+            optimizer.zero_grad()
+            predictions = model(inputs)
+            loss = torch.sqrt(criterion(predictions, targets))  # RMSEを計算
+            loss.backward()
+            optimizer.step()
+            epoch_train_loss += loss.item()
 
-torch.save(model.state_dict(), os.path.join(save_model_dir, "Dajare.pth"))
+        epoch_train_loss /= len(train_loader)
+        train_losses.append(epoch_train_loss)
+
+        model.eval()
+        with torch.no_grad():
+            val_predictions = model(X_val_tensor)
+            val_rmse_loss = mean_squared_error(y_val_tensor.numpy(), val_predictions.numpy(), squared=False)
+            val_mae_loss = mean_absolute_error(y_val_tensor.numpy(), val_predictions.numpy())  # MAEを計算
+            val_losses.append(val_rmse_loss)
+            val_mae_losses.append(val_mae_loss)
+            print(f"Epoch {epoch+1}, Training Loss: {epoch_train_loss}, Validation RMSE: {val_rmse_loss}, Validation MAE: {val_mae_loss}")
+
+    # 最も性能の良いモデルを選択
+    if val_rmse_loss < best_val_rmse:
+        best_val_rmse = val_rmse_loss
+        best_fold = fold + 1
+        torch.save(model.state_dict(), os.path.join(save_model_dir, "Dajare_best.pth"))
+
+    # 損失関数の推移を棒グラフに出力（RMSE）
+    plt.figure(figsize=(12, 6))
+    plt.plot(range(1, epochs + 1), train_losses, label='Training Loss', color='orange')
+    plt.plot(range(1, epochs + 1), val_losses, label='Validation RMSE', color='skyblue')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title(f'Training and Validation RMSE Over Epochs (Fold {fold + 1})')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_metrics_dir, f"Dajare_rmse_loss_fold{fold + 1}.png"))
+    plt.close()
+
+    # 損失関数の推移を棒グラフに出力（MAE）
+    plt.figure(figsize=(12, 6))
+    plt.plot(range(1, epochs + 1), val_mae_losses, label='Validation MAE', color='green')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title(f'Validation MAE Over Epochs (Fold {fold + 1})')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_metrics_dir, f"Dajare_mae_loss_fold{fold + 1}.png"))
+    plt.close()
+
+    # 損失関数の推移をテキストとして保存
+    with open(os.path.join(save_metrics_dir, f"Dajare_loss_fold{fold + 1}.txt"), "a") as f:
+        for epoch, (train_loss, val_loss, val_mae_loss) in enumerate(zip(train_losses, val_losses, val_mae_losses), 1):
+            f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation RMSE: {val_loss}, Validation MAE: {val_mae_loss}\n")
+
+    all_train_losses.append(train_losses)
+    all_val_losses.append(val_losses)
+    all_val_mae_losses.append(val_mae_losses)
+
+print(f"Best fold: {best_fold}")
+
+# 最も性能の良いモデルをロード
+model.load_state_dict(torch.load(os.path.join(save_model_dir, "Dajare_best.pth")))
 
 # テストデータで評価
 model.eval()
 with torch.no_grad():
+    X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
+    y_test_tensor = torch.tensor(y_test, dtype=torch.float32).view(-1, 1)
     test_predictions = model(X_test_tensor)
     test_rmse_loss = mean_squared_error(y_test_tensor.numpy(), test_predictions.numpy(), squared=False)
     test_mae_loss = mean_absolute_error(y_test_tensor.numpy(), test_predictions.numpy())  # MAEを計算
@@ -233,26 +293,24 @@ with torch.no_grad():
 test_predictions = test_predictions * 4 + 1
 y_test_tensor = y_test_tensor * 4 + 1
 
-# テストデータの保存
-test_indices = X_temp.shape[0] // 2 + np.arange(X_test_tensor.shape[0])
-test_data = data.iloc[test_indices].copy()
-test_data.loc[:, 'predict'] = test_predictions.numpy()
-test_data.to_csv(os.path.join(save_metrics_dir, "test_data_with_predictions.csv"), index=False)
+# 回帰モデルの出力をカテゴリに変換
+test_predictions_rounded = np.round(test_predictions.numpy()).astype(int)
+y_test_rounded = np.round(y_test_tensor.numpy()).astype(int)
 
 # 面白い/面白くないの分類
-# y_true = (y_test_tensor.numpy() >= 3.0).astype(int)
-# y_pred = (test_predictions.numpy() >= 3.0).astype(int)
+y_true = (y_test_rounded >= 3).astype(int)
+y_pred = (test_predictions_rounded >= 3).astype(int)
 
 # 評価指標の計算
-# accuracy = accuracy_score(y_true, y_pred)
-# precision = precision_score(y_true, y_pred)
-# recall = recall_score(y_true, y_pred)
-# f1 = f1_score(y_true, y_pred)
+accuracy = accuracy_score(y_true, y_pred)
+precision = precision_score(y_true, y_pred)
+recall = recall_score(y_true, y_pred)
+f1 = f1_score(y_true, y_pred)
 
 # 評価指標の保存
 with open(os.path.join(save_metrics_dir, "Dajare_loss.txt"), "a") as f:
     f.write(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}\n")
-    # f.write(f"Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1 Score: {f1}\n")
+    f.write(f"Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1 Score: {f1}\n")
 
 # 予測スコアの分布をヒストグラムで保存
 plt.figure(figsize=(12, 6))
