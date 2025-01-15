@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error  # 変更
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 import matplotlib.pyplot as plt
 import MeCab
 import pickle
@@ -12,9 +12,9 @@ import pandas as pd
 from transformers import BertJapaneseTokenizer, BertModel
 import pykakasi
 import fasttext
-import optuna  # Optunaをインポート
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score  # 追加
-from sklearn.model_selection import KFold  # 追加
+import optuna
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+from sklearn.model_selection import KFold
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
@@ -103,7 +103,7 @@ X_combined = np.hstack((bert_embeddings, phonetic_features_list, fasttext_embedd
 
 # 特徴量の正規化
 X_combined = (X_combined - np.mean(X_combined, axis=0)) / np.std(X_combined, axis=0)
-y = (np.array(scores) - 1) / 4.0  # スコアを1～5から0～1に正規化
+y = (np.array(scores) - 1) / 4.0
 
 # データセットの分割
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y, test_size=0.2, random_state=42)
@@ -115,19 +115,20 @@ kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
 def objective(trial):
     hidden_sizes = [
-        trial.suggest_int("hidden_size1", 128, 512),  # 範囲を調整
-        trial.suggest_int("hidden_size2", 64, 256),   # 範囲を調整
-        trial.suggest_int("hidden_size3", 32, 128),   # 範囲を調整
-        trial.suggest_int("hidden_size4", 16, 64)     # 範囲を調整
+        trial.suggest_int("hidden_size1", 128, 512),
+        trial.suggest_int("hidden_size2", 64, 256),
+        trial.suggest_int("hidden_size3", 32, 128),
+        trial.suggest_int("hidden_size4", 16, 64)
     ]
-    dropout_rate = trial.suggest_float("dropout_rate", 0.1, 0.5)  # 範囲を調整
+    dropout_rate = trial.suggest_float("dropout_rate", 0.1, 0.5)
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3)
-    batch_size = trial.suggest_int("batch_size", 16, 128)  # 範囲を調整
-    epochs = trial.suggest_int("epochs", 10, 100)  # 範囲を調整
+    batch_size = trial.suggest_int("batch_size", 16, 128)
+    epochs = trial.suggest_int("epochs", 10, 100)
 
     model = DajarePredictor(input_size=1071, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
+    # オプティマイザと損失関数の設定、AdamとRMSEを使用
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()  # 損失関数をMSEに変更
+    criterion = nn.MSELoss()
 
     # データを訓練データと検証データに分割
     X_train_fold, X_val_fold, y_train_fold, y_val_fold = train_test_split(X_train, y_train, test_size=0.2, random_state=trial.suggest_int("split_seed", 0, 10000))
@@ -197,9 +198,10 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
     X_train_fold, X_val_fold = X_train[train_index], X_train[val_index]
     y_train_fold, y_val_fold = y_train[train_index], y_train[val_index]
 
+    # 各フォールドごとに新しいモデル、オプティマイザ、損失関数を定義
     model = DajarePredictor(input_size=1071, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()  # 損失関数をMSEに変更
+    criterion = nn.MSELoss()
 
     X_train_tensor = torch.tensor(X_train_fold, dtype=torch.float32)
     y_train_tensor = torch.tensor(y_train_fold, dtype=torch.float32).view(-1, 1)
@@ -307,10 +309,16 @@ precision = precision_score(y_true, y_pred)
 recall = recall_score(y_true, y_pred)
 f1 = f1_score(y_true, y_pred)
 
+# y_trueとy_predの数を計算
+y_true_count = np.bincount(y_true)
+y_pred_count = np.bincount(y_pred)
+
 # 評価指標の保存
 with open(os.path.join(save_metrics_dir, "Dajare_loss.txt"), "a") as f:
     f.write(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}\n")
     f.write(f"Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1 Score: {f1}\n")
+    f.write(f"y_true counts: {y_true_count.tolist()}\n")
+    f.write(f"y_pred counts: {y_pred_count.tolist()}\n")
 
 # 予測スコアの分布をヒストグラムで保存
 plt.figure(figsize=(12, 6))
