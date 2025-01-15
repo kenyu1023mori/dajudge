@@ -18,7 +18,7 @@ from sklearn.model_selection import KFold  # 追加
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.01"
+version = "v3.02"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -330,6 +330,12 @@ plt.legend()
 plt.tight_layout()
 plt.savefig(os.path.join(save_metrics_dir, "Dajare_score_distribution.png"))
 plt.close()
+
+# テストデータの保存
+test_ids = data.iloc[X_test_tensor.numpy().astype(int)]['id']
+test_data = data[data['id'].isin(test_ids)].copy()
+test_data['predict'] = test_predictions.numpy()
+test_data.to_csv(os.path.join(save_metrics_dir, "test_data_with_predictions.csv"), index=False)
 
 # 損失関数の推移を棒グラフに出力（RMSE）
 plt.figure(figsize=(12, 6))
