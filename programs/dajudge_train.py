@@ -15,7 +15,7 @@ import optuna
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.02"
+version = "v3.06"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -46,21 +46,44 @@ def get_bert_embeddings(sentences, tokenizer, model, batch_size=16):
         embeddings.extend(batch_embeddings)
     return np.array(embeddings)
 
+# 日本語のストップワード、fastTextでの埋め込みで使用
+# japanese_stop_words = set([
+#     "の", "に", "は", "を", "た", "が", "で", "て", "と", "し", "れ", "さ", "ある", "いる", 
+#     "も", "する", "から", "な", "こと", "として", "い", "や", "れる", "など", "なっ", "ない", 
+#     "この", "ため", "その", "あっ", "よう", "また", "もの", "という", "あり", "まで", "られ", 
+#     "なる", "へ", "か", "だ", "これ", "によって", "により", "おり", "より", "による", "ず", 
+#     "なり", "られる", "、", "。", "「", "」", "！", "？", "〜", "ー", ",", "."
+# ])
+
 def get_fasttext_embeddings(sentences, model):
     embeddings = []
     for sentence in sentences:
         words = mecab.parse(sentence).strip().split()
-        word_embeddings = [model.get_word_vector(word) for word in words]
+        word_embeddings = [model.get_word_vector(word) for word in words]  # if word not in japanese_stop_words
         embeddings.append(np.mean(word_embeddings, axis=0) if word_embeddings else np.zeros(300))
     return np.array(embeddings)
 
-def phonetic_features(sentence):
-    result = kakasi.convert(sentence)
-    romaji = " ".join([item["hepburn"] for item in result])
-    length = len(romaji.split())
+# 読み仮名から特徴量を抽出
+def extract_phonetic_features(yomi):
+    romaji = yomi
     vowels = sum(1 for char in romaji if char in "aeiou")
     consonants = len(romaji.replace(" ", "")) - vowels
-    return [length, vowels, consonants]
+    length = len(romaji.split())  # 音節数
+    repeat_ratio = sum(romaji.count(char) > 1 for char in set(romaji)) / len(set(romaji))
+    
+    return [length, vowels, consonants, vowels / (consonants + 1e-5), repeat_ratio]
+
+# 特徴量の生成
+def generate_features(sentences, yomis):
+    bert_embeddings = get_bert_embeddings(sentences, tokenizer, bert_model)
+    fasttext_embeddings = get_fasttext_embeddings(sentences, fasttext_model)
+    
+    # 新しい音韻的特徴量の追加
+    new_phonetic_features = np.array([extract_phonetic_features(yomi) for yomi in yomis])
+    
+    # 特徴量の結合
+    X_combined = np.hstack((bert_embeddings, fasttext_embeddings, new_phonetic_features))
+    return X_combined
 
 # ニューラルネットワークモデル
 class DajarePredictor(nn.Module):
@@ -89,13 +112,11 @@ class DajarePredictor(nn.Module):
 # データ読み込みと前処理
 data = pd.read_csv(file_path)
 sentences = data['dajare'].astype(str).tolist()
+yomis = data['yomi'].astype(str).tolist()
 scores = data['score'].tolist()
 
 # 特徴量の生成
-bert_embeddings = get_bert_embeddings(sentences, tokenizer, bert_model)
-phonetic_features_list = np.array([phonetic_features(sentence) for sentence in sentences])
-fasttext_embeddings = get_fasttext_embeddings(sentences, fasttext_model)
-X_combined = np.hstack((bert_embeddings, phonetic_features_list, fasttext_embeddings))
+X_combined = generate_features(sentences, yomis)
 
 # 特徴量の正規化
 X_combined = (X_combined - np.mean(X_combined, axis=0)) / np.std(X_combined, axis=0)
@@ -120,7 +141,7 @@ def objective(trial):
     batch_size = trial.suggest_int("batch_size", 16, 128)
     epochs = trial.suggest_int("epochs", 10, 100)
 
-    model = DajarePredictor(input_size=1071, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
+    model = DajarePredictor(input_size=1073, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
     # オプティマイザと損失関数の設定、AdamとRMSEを使用
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
@@ -194,7 +215,7 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
     y_train_fold, y_val_fold = y_train[train_index], y_train[val_index]
 
     # 各フォールドごとに新しいモデル、オプティマイザ、損失関数を定義
-    model = DajarePredictor(input_size=1071, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
+    model = DajarePredictor(input_size=1073, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
 
@@ -274,7 +295,7 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
 print(f"Best fold: {best_fold}")
 
 # 最も性能の良いモデルをロード
-model.load_state_dict(torch.load(os.path.join(save_model_dir, "Dajare_best.pth")))
+model.load_state_dict(torch.load(os.path.join(save_model_dir, "Dajare_best.pth"), weights_only=True))
 
 # テストデータで評価
 model.eval()
@@ -290,13 +311,23 @@ with torch.no_grad():
 test_predictions = test_predictions * 4 + 1
 y_test_tensor = y_test_tensor * 4 + 1
 
+# テストデータのインデックスを取得
+_, test_indices = train_test_split(data.index, test_size=0.2, random_state=42)
+
+# テストデータのDataFrameを作成し、予測スコアを追加
+test_data = data.loc[test_indices].copy()
+test_data['predict'] = test_predictions.numpy()
+
+# テストデータと予測スコアを保存
+test_data.to_csv(os.path.join(save_metrics_dir, "test_predictions.csv"), index=False)
+
 # 回帰モデルの出力をカテゴリに変換
 test_predictions_rounded = np.round(test_predictions.numpy()).astype(int)
 y_test_rounded = np.round(y_test_tensor.numpy()).astype(int)
 
 # 面白い/面白くないの分類
-y_true = (y_test_rounded >= 3).astype(int)
-y_pred = (test_predictions_rounded >= 3).astype(int)
+y_true = (y_test_rounded >= 3).astype(int).flatten()
+y_pred = (test_predictions_rounded >= 3).astype(int).flatten()
 
 # 評価指標の計算
 accuracy = accuracy_score(y_true, y_pred)
@@ -304,7 +335,7 @@ precision = precision_score(y_true, y_pred)
 recall = recall_score(y_true, y_pred)
 f1 = f1_score(y_true, y_pred)
 
-# y_trueとy_predの数を計算
+# y_trueと y_predの数を計算
 y_true_count = np.bincount(y_true)
 y_pred_count = np.bincount(y_pred)
 
@@ -321,7 +352,7 @@ plt.hist(test_predictions.numpy(), bins=50, edgecolor='k', color='skyblue', alph
 plt.hist(y_test_tensor.numpy(), bins=50, edgecolor='k', color='orange', alpha=0.5, label='True')
 
 min_score = min(test_predictions.min().item(), y_test_tensor.min().item())
-max_score = max(test_predictions.max().item(), y_test_tensor.max().item())
+max_score = max(test_predictions.max().item(), y_test_tensor.max().item())  # 修正箇所
 ticks = np.arange(np.floor(min_score * 10) / 10, np.ceil(max_score * 10) / 10 + 0.1)
 plt.xticks(ticks)
 
@@ -332,12 +363,6 @@ plt.legend()
 plt.tight_layout()
 plt.savefig(os.path.join(save_metrics_dir, "Dajare_score_distribution.png"))
 plt.close()
-
-# テストデータの保存
-test_ids = data.iloc[X_test_tensor.numpy().astype(int)]['id']
-test_data = data[data['id'].isin(test_ids)].copy()
-test_data['predict'] = test_predictions.numpy()
-test_data.to_csv(os.path.join(save_metrics_dir, "test_data_with_predictions.csv"), index=False)
 
 # 損失関数の推移を棒グラフに出力（RMSE）
 plt.figure(figsize=(12, 6))
