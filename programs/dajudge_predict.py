@@ -85,9 +85,15 @@ model_path = os.path.join(load_dir, "Dajare_best.pth")  # Update model path to m
 model.load_state_dict(torch.load(model_path, weights_only=True))  # Set weights_only=True to avoid the warning
 model.eval()
 
+# ひらがなと記号のみを抽出する関数
+def extract_hiragana_and_symbols(text):
+    return ''.join([char for char in text if char in "ぁ-んー、。！？"])
+
 # 入力したダジャレに対してモデルのスコアを出力する関数
-def predict_score(input_text, yomi, model, tokenizer, bert_model, fasttext_model, mecab, kakasi):
+def predict_score(input_text, model, tokenizer, bert_model, fasttext_model, mecab, kakasi):
     bert_embedding = get_bert_embeddings([input_text], tokenizer, bert_model)
+    yomi = mecab.parse(input_text).strip()
+    yomi = extract_hiragana_and_symbols(yomi)
     phonetic_feature = np.array([extract_phonetic_features(yomi)])
     fasttext_embedding = np.array([get_fasttext_embeddings(input_text, fasttext_model)])
     input_vector = np.hstack((bert_embedding, fasttext_embedding, phonetic_feature))
@@ -102,5 +108,4 @@ while True:
     input_text = input("Enter a Dajare (or type 'q' to quit): ")
     if input_text.lower() == 'q':
         break
-    yomi = input("Enter the reading of the Dajare: ")
-    predict_score(input_text, yomi, model, tokenizer, bert_model, fasttext_model, mecab, kakasi)
+    predict_score(input_text, model, tokenizer, bert_model, fasttext_model, mecab, kakasi)
