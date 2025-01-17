@@ -8,10 +8,10 @@ import fasttext
 from transformers import BertJapaneseTokenizer, BertModel
 
 # 必要な変数とパスを設定
-version = "v2.10"
+version = "v3.06"
 load_dir = f"../models/{version}"
 fasttext_model_path = "../models/cc.ja.300.bin"
-bert_model_name = "cl-tohoku/bert-base-japanese"
+bert_model_name = "cl-tohoku/bert-base-japanese-v3"
 
 # MeCabの設定
 mecab = MeCab.Tagger("-Owakati")  # 単語を分かち書き形式で取得
@@ -19,16 +19,15 @@ kakasi = pykakasi.kakasi()  # 音韻解析用
 
 # ニューラルネットワークモデルのクラス定義
 class DajarePredictor(nn.Module):
-    def __init__(self):
+    def __init__(self, input_size, hidden_sizes, dropout_rate):
         super(DajarePredictor, self).__init__()
-        input_size = 768 + 3 + 300  # BERT + 音韻特徴量 + fastText
-        self.fc1 = nn.Linear(input_size, 1024)
-        self.fc2 = nn.Linear(1024, 512)
-        self.fc3 = nn.Linear(512, 256)
-        self.fc4 = nn.Linear(256, 128)
-        self.fc5 = nn.Linear(128, 1)
-        self.dropout = nn.Dropout(0.5)
-        self.sigmoid = nn.Sigmoid()  # Add sigmoid activation
+        self.fc1 = nn.Linear(input_size, hidden_sizes[0])
+        self.fc2 = nn.Linear(hidden_sizes[0], hidden_sizes[1])
+        self.fc3 = nn.Linear(hidden_sizes[1], hidden_sizes[2])
+        self.fc4 = nn.Linear(hidden_sizes[2], hidden_sizes[3])
+        self.fc5 = nn.Linear(hidden_sizes[3], 1)
+        self.dropout = nn.Dropout(dropout_rate)
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         x = torch.relu(self.fc1(x))
@@ -39,8 +38,7 @@ class DajarePredictor(nn.Module):
         x = self.dropout(x)
         x = torch.relu(self.fc4(x))
         x = self.fc5(x)
-        x = self.sigmoid(x)  # Apply sigmoid activation
-        # ToDo: ここおかしいかも
+        x = self.sigmoid(x)
         return x
 
 # BERTモデルとトークナイザーのロード
@@ -51,13 +49,14 @@ bert_model = BertModel.from_pretrained(bert_model_name)
 fasttext_model = fasttext.load_model(fasttext_model_path)
 
 # 音韻特徴量を生成
-def phonetic_features(sentence):
-    result = kakasi.convert(sentence)
-    romaji = " ".join([item["hepburn"] for item in result])
+def extract_phonetic_features(yomi):
+    romaji = yomi
+    vowels = sum(1 for char in romaji if char in "aeiou")
+    consonants = len(romaji.replace(" ", "")) - vowels
     length = len(romaji.split())  # 音節数
-    vowels = sum(1 for char in romaji if char in "aeiou")  # 母音の数
-    consonants = len(romaji.replace(" ", "")) - vowels  # 子音の数
-    return [length, vowels, consonants]
+    repeat_ratio = sum(romaji.count(char) > 1 for char in set(romaji)) / len(set(romaji))
+    
+    return [length, vowels, consonants, vowels / (consonants + 1e-5), repeat_ratio]
 
 # 文をBERT埋め込みに変換
 def get_bert_embeddings(sentences, tokenizer, model):
@@ -76,26 +75,32 @@ def get_fasttext_embeddings(sentence, model):
         return np.zeros(300)
 
 # モデルのロード
-model = DajarePredictor()
-model_path = os.path.join(load_dir, "Dajare.pth")  # Update model path to match dajudge_train.py
+input_size = 1073  # Update input size to match dajudge_train.py
+# Best parameters: {'hidden_size1': 240, 'hidden_size2': 165, 'hidden_size3': 92, 'hidden_size4': 20, 'dropout_rate': 0.47319861745762953, 'learning_rate': 1.4899714037058526e-05, 'batch_size': 52, 'epochs': 43, 'split_seed': 2122}
+hidden_sizes = [240, 165, 92, 20]  # 手動で設定
+dropout_rate = 0.47319861745762953  # 手動で設定
+
+model = DajarePredictor(input_size=input_size, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
+model_path = os.path.join(load_dir, "Dajare_best.pth")  # Update model path to match dajudge_train.py
 model.load_state_dict(torch.load(model_path, weights_only=True))  # Set weights_only=True to avoid the warning
 model.eval()
 
 # 入力したダジャレに対してモデルのスコアを出力する関数
-def predict_score(input_text, model, tokenizer, bert_model, fasttext_model, mecab, kakasi):
+def predict_score(input_text, yomi, model, tokenizer, bert_model, fasttext_model, mecab, kakasi):
     bert_embedding = get_bert_embeddings([input_text], tokenizer, bert_model)
-    phonetic_feature = np.array([phonetic_features(input_text)])
+    phonetic_feature = np.array([extract_phonetic_features(yomi)])
     fasttext_embedding = np.array([get_fasttext_embeddings(input_text, fasttext_model)])
-    input_vector = np.hstack((bert_embedding, phonetic_feature, fasttext_embedding))
+    input_vector = np.hstack((bert_embedding, fasttext_embedding, phonetic_feature))
     input_tensor = torch.tensor(input_vector, dtype=torch.float32)
 
     with torch.no_grad():
         prediction = model(input_tensor).squeeze().item()
-        print(f"Predicted Score: {prediction * 100}")
+        print(f"Predicted Score: {prediction * 4 + 1}")  # Adjust score scaling
 
 # ユーザー入力処理
 while True:
     input_text = input("Enter a Dajare (or type 'q' to quit): ")
     if input_text.lower() == 'q':
         break
-    predict_score(input_text, model, tokenizer, bert_model, fasttext_model, mecab, kakasi)
+    yomi = input("Enter the reading of the Dajare: ")
+    predict_score(input_text, yomi, model, tokenizer, bert_model, fasttext_model, mecab, kakasi)
