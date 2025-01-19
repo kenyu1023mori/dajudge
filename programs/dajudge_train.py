@@ -307,13 +307,9 @@ test_data['predict'] = test_predictions.numpy()
 # テストデータと予測スコアを保存
 test_data.to_csv(os.path.join(save_metrics_dir, "test_predictions.csv"), index=False)
 
-# 回帰モデルの出力をカテゴリに変換
-test_predictions_rounded = np.round(test_predictions.numpy()).astype(int)
-y_test_rounded = np.round(y_test_tensor.numpy()).astype(int)
-
 # 面白い/面白くないの分類
-y_true = (y_test_rounded >= 3).astype(int).flatten()
-y_pred = (test_predictions_rounded >= 3).astype(int).flatten()
+y_true = (y_test_tensor >= 60).astype(int).flatten()
+y_pred = (test_predictions >= 60).astype(int).flatten()
 
 # 評価指標の計算
 accuracy = accuracy_score(y_true, y_pred)
