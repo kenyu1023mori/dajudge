@@ -9,21 +9,19 @@ import matplotlib.pyplot as plt
 import MeCab
 import pandas as pd
 from transformers import BertJapaneseTokenizer, BertModel
-import pykakasi
 import fasttext
 import optuna
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.08"
+version = "v3.09"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
 os.makedirs(save_metrics_dir, exist_ok=True)
 
-# MeCabと音韻解析の初期化
+# MeCabの初期化
 mecab = MeCab.Tagger("-Owakati")
-kakasi = pykakasi.kakasi()
 
 # fastTextモデル
 fasttext_model_path = "../models/cc.ja.300.bin"
@@ -46,7 +44,7 @@ def get_bert_embeddings(sentences, tokenizer, model, batch_size=16):
         embeddings.extend(batch_embeddings)
     return np.array(embeddings)
 
-# 日本語のストップワード、fastTextでの埋め込みで使用
+# 日本語のストップワード
 japanese_stop_words = set([
     "の", "に", "は", "を", "た", "が", "で", "て", "と", "し", "れ", "さ", "ある", "いる", 
     "も", "する", "から", "な", "こと", "として", "い", "や", "れる", "など", "なっ", "ない", 
@@ -59,7 +57,8 @@ def get_fasttext_embeddings(sentences, model):
     embeddings = []
     for sentence in sentences:
         words = mecab.parse(sentence).strip().split()
-        word_embeddings = [model.get_word_vector(word) for word in words]  # if word not in japanese_stop_words
+        # fastTextのembeddingではストップワードを除外して考える
+        word_embeddings = [model.get_word_vector(word) for word in words if word not in japanese_stop_words]
         embeddings.append(np.mean(word_embeddings, axis=0) if word_embeddings else np.zeros(300))
     return np.array(embeddings)
 
@@ -67,7 +66,7 @@ def get_fasttext_embeddings(sentences, model):
 def generate_features(sentences):
     bert_embeddings = get_bert_embeddings(sentences, tokenizer, bert_model)
     fasttext_embeddings = get_fasttext_embeddings(sentences, fasttext_model)
-    
+
     # 特徴量の結合
     X_combined = np.hstack((bert_embeddings, fasttext_embeddings))
     return X_combined
@@ -104,9 +103,10 @@ scores = data['score'].tolist()
 # 特徴量の生成
 X_combined = generate_features(sentences)
 
-# 特徴量の正規化
+# 特徴量の標準化
 X_combined = (X_combined - np.mean(X_combined, axis=0)) / np.std(X_combined, axis=0)
-y = (np.array(scores) - 1) / 4.0
+# スコアの正規化 (x-x_min)/(x_max-x_min)
+y = (np.array(scores) - 1.0) / 3.6
 
 # データセットの分割
 X_train, X_test, y_train, y_test = train_test_split(X_combined, y, test_size=0.2, random_state=42)
@@ -127,7 +127,7 @@ def objective(trial):
     batch_size = trial.suggest_int("batch_size", 16, 128)
     epochs = trial.suggest_int("epochs", 10, 100)
 
-    model = DajarePredictor(input_size=928, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)  # Update input size
+    model = DajarePredictor(input_size=928, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
     # オプティマイザと損失関数の設定、AdamとHuber損失を使用
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.SmoothL1Loss()  # Huber損失
