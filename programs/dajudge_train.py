@@ -13,9 +13,9 @@ import fasttext
 import optuna
 
 # データパスと保存ディレクトリ
-# file_path = "../../data/final/final_dataset.csv"
-file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.17"
+file_path = "../../data/final/final_dataset.csv"
+# file_path = "../../data/final/dajare_dataset.csv"
+version = "v3.18"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -135,7 +135,7 @@ def objective(trial):
     dropout_rate = trial.suggest_float("dropout_rate", 0.1, 0.5)
     learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3)
     batch_size = trial.suggest_int("batch_size", 16, 128)
-    epochs = trial.suggest_int("epochs", 10, 100)
+    epochs = trial.suggest_int("epochs", 11, 100)
 
     model = DajarePredictor(input_size=1068, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
