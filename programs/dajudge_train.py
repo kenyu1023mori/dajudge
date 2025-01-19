@@ -77,7 +77,7 @@ class DajarePredictor(nn.Module):
     def __init__(self, input_size, hidden_sizes, dropout_rate):
         super(DajarePredictor, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_sizes[0])
-        self.fc2 = nn.Linear(hidden_sizes[0], hidden_sizes[1])
+        self.fc2 = nn.Linear(hidden_sizes[0])
         self.fc3 = nn.Linear(hidden_sizes[1], hidden_sizes[2])
         self.fc4 = nn.Linear(hidden_sizes[2], hidden_sizes[3])
         self.fc5 = nn.Linear(hidden_sizes[3], 1)
@@ -201,6 +201,12 @@ loss_function_name = best_params["loss_function"]
 evaluation_metric_name = best_params["evaluation_metric"]
 criterion = loss_functions[loss_function_name]
 evaluation_metric = evaluation_metrics[evaluation_metric_name]
+
+# 保存ディレクトリの設定
+save_model_dir = f"../models/{version}/{loss_function_name}_{evaluation_metric_name}"
+os.makedirs(save_model_dir, exist_ok=True)
+save_metrics_dir = f"../metrics/{version}/{loss_function_name}_{evaluation_metric_name}"
+os.makedirs(save_metrics_dir, exist_ok=True)
 
 # 交差検証の結果を保存するリスト
 all_train_losses = []
@@ -371,7 +377,7 @@ y_true_count = np.bincount(y_true)
 y_pred_count = np.bincount(y_pred)
 
 # 評価指標の保存
-with open(os.path.join(save_metrics_dir, "Dajare_loss.txt"), "a") as f:
+with open(os.path.join(save_metrics_dir, f"Dajare_loss_{loss_function_name}_{evaluation_metric_name}.txt"), "a") as f:
     f.write(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}, Test MSE: {test_mse_loss}, Test R2: {test_r2_score}\n")
     f.write(f"Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1 Score: {f1}\n")
     f.write(f"y_true counts: {y_true_count.tolist()}\n")
@@ -392,7 +398,7 @@ plt.ylabel("Frequency")
 plt.title("Dajare - Score Distribution")
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(save_metrics_dir, "Dajare_score_distribution.png"))
+plt.savefig(os.path.join(save_metrics_dir, f"Dajare_score_distribution_{loss_function_name}_{evaluation_metric_name}.png"))
 plt.close()
 
 # 損失関数の推移を棒グラフに出力（RMSE）
@@ -404,7 +410,7 @@ plt.ylabel('Loss')
 plt.title('Training and Validation RMSE Over Epochs')
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(save_metrics_dir, "Dajare_rmse_loss.png"))
+plt.savefig(os.path.join(save_metrics_dir, f"Dajare_rmse_loss_{loss_function_name}_{evaluation_metric_name}.png"))
 plt.close()
 
 # 損失関数の推移を棒グラフに出力（MAE）
@@ -415,7 +421,7 @@ plt.ylabel('Loss')
 plt.title('Validation MAE Over Epochs')
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(save_metrics_dir, "Dajare_mae_loss.png"))
+plt.savefig(os.path.join(save_metrics_dir, f"Dajare_mae_loss_{loss_function_name}_{evaluation_metric_name}.png"))
 plt.close()
 
 # 損失関数の推移を棒グラフに出力（MSE）
@@ -426,7 +432,7 @@ plt.ylabel('Loss')
 plt.title('Validation MSE Over Epochs')
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(save_metrics_dir, "Dajare_mse_loss.png"))
+plt.savefig(os.path.join(save_metrics_dir, f"Dajare_mse_loss_{loss_function_name}_{evaluation_metric_name}.png"))
 plt.close()
 
 # R2スコアの推移を棒グラフに出力
@@ -437,10 +443,10 @@ plt.ylabel('R2 Score')
 plt.title('Validation R2 Over Epochs')
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(save_metrics_dir, "Dajare_r2_score.png"))
+plt.savefig(os.path.join(save_metrics_dir, f"Dajare_r2_score_{loss_function_name}_{evaluation_metric_name}.png"))
 plt.close()
 
 # 損失関数の推移をテキストとして保存
-with open(os.path.join(save_metrics_dir, "Dajare_loss.txt"), "a") as f:
+with open(os.path.join(save_metrics_dir, f"Dajare_loss_{loss_function_name}_{evaluation_metric_name}.txt"), "a") as f:
     for epoch, (train_loss, val_loss, val_mae_loss, val_mse_loss, val_r2_score) in enumerate(zip(train_losses, val_losses, val_mae_losses, val_mse_losses, val_r2_scores), 1):
         f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation RMSE: {val_loss}, Validation MAE: {val_mae_loss}, Validation MSE: {val_mse_loss}, Validation R2: {val_r2_score}\n")
