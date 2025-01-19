@@ -14,7 +14,7 @@ import optuna
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/final_dataset.csv"
-version = "v3.15"
+version = "v3.16"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -116,7 +116,7 @@ X_train, X_test, y_train, y_test = train_test_split(X_combined, y, test_size=0.2
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
 # 損失関数と評価関数の設定
-criterion = nn.SmoothL1Loss()  # Huber Loss
+criterion = nn.L1Loss()  # MAE Loss
 evaluation_metrics = {
     "RMSE": lambda y_true, y_pred: mean_squared_error(y_true, y_pred, squared=False),
     "MAE": mean_absolute_error,
@@ -186,9 +186,9 @@ batch_size = best_params["batch_size"]
 epochs = best_params["epochs"]
 
 # 保存ディレクトリの設定
-save_model_dir = f"../models/{version}/SmoothL1Loss"
+save_model_dir = f"../models/{version}/MAELoss"
 os.makedirs(save_model_dir, exist_ok=True)
-save_metrics_dir = f"../metrics/{version}/SmoothL1Loss"
+save_metrics_dir = f"../metrics/{version}/MAELoss"
 os.makedirs(save_metrics_dir, exist_ok=True)
 
 # 交差検証の結果を保存するリスト
@@ -341,7 +341,7 @@ y_true_count = np.bincount(y_true)
 y_pred_count = np.bincount(y_pred)
 
 # 評価指標の保存
-with open(os.path.join(save_metrics_dir, f"Dajare_loss_SmoothL1Loss.txt"), "a") as f:
+with open(os.path.join(save_metrics_dir, f"Dajare_loss_MAELoss.txt"), "a") as f:
     f.write(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}, Test R2: {test_r2_score}\n")
     f.write(f"Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1 Score: {f1}\n")
     f.write(f"y_true counts: {y_true_count.tolist()}\n")
@@ -362,7 +362,7 @@ plt.ylabel("Frequency")
 plt.title("Dajare - Score Distribution")
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(save_metrics_dir, f"Dajare_score_distribution_SmoothL1Loss.png"))
+plt.savefig(os.path.join(save_metrics_dir, f"Dajare_score_distribution_MAELoss.png"))
 plt.close()
 
 # 損失関数の推移を棒グラフに出力（RMSE）
@@ -374,7 +374,7 @@ plt.ylabel('Loss')
 plt.title('Training and Validation RMSE Over Epochs')
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(save_metrics_dir, f"Dajare_rmse_loss_SmoothL1Loss.png"))
+plt.savefig(os.path.join(save_metrics_dir, f"Dajare_rmse_loss_MAELoss.png"))
 plt.close()
 
 # 損失関数の推移を棒グラフに出力（MAE）
@@ -385,7 +385,7 @@ plt.ylabel('Loss')
 plt.title('Validation MAE Over Epochs')
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(save_metrics_dir, f"Dajare_mae_loss_SmoothL1Loss.png"))
+plt.savefig(os.path.join(save_metrics_dir, f"Dajare_mae_loss_MAELoss.png"))
 plt.close()
 
 # R2スコアの推移を棒グラフに出力
@@ -396,10 +396,10 @@ plt.ylabel('R2 Score')
 plt.title('Validation R2 Over Epochs')
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(save_metrics_dir, f"Dajare_r2_score_SmoothL1Loss.png"))
+plt.savefig(os.path.join(save_metrics_dir, f"Dajare_r2_score_MAELoss.png"))
 plt.close()
 
 # 損失関数の推移をテキストとして保存
-with open(os.path.join(save_metrics_dir, f"Dajare_loss_SmoothL1Loss.txt"), "a") as f:
+with open(os.path.join(save_metrics_dir, f"Dajare_loss_MAELoss.txt"), "a") as f:
     for epoch, (train_loss, val_loss, val_mae_loss, val_r2_score) in enumerate(zip(train_losses, val_losses, val_mae_losses, val_r2_scores), 1):
         f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation RMSE: {val_loss}, Validation MAE: {val_mae_loss}, Validation R2: {val_r2_score}\n")
