@@ -15,7 +15,7 @@ import optuna
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.06"
+version = "v3.08"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -47,13 +47,13 @@ def get_bert_embeddings(sentences, tokenizer, model, batch_size=16):
     return np.array(embeddings)
 
 # 日本語のストップワード、fastTextでの埋め込みで使用
-# japanese_stop_words = set([
-#     "の", "に", "は", "を", "た", "が", "で", "て", "と", "し", "れ", "さ", "ある", "いる", 
-#     "も", "する", "から", "な", "こと", "として", "い", "や", "れる", "など", "なっ", "ない", 
-#     "この", "ため", "その", "あっ", "よう", "また", "もの", "という", "あり", "まで", "られ", 
-#     "なる", "へ", "か", "だ", "これ", "によって", "により", "おり", "より", "による", "ず", 
-#     "なり", "られる", "、", "。", "「", "」", "！", "？", "〜", "ー", ",", "."
-# ])
+japanese_stop_words = set([
+    "の", "に", "は", "を", "た", "が", "で", "て", "と", "し", "れ", "さ", "ある", "いる", 
+    "も", "する", "から", "な", "こと", "として", "い", "や", "れる", "など", "なっ", "ない", 
+    "この", "ため", "その", "あっ", "よう", "また", "もの", "という", "あり", "まで", "られ", 
+    "なる", "へ", "か", "だ", "これ", "によって", "により", "おり", "より", "による", "ず", 
+    "なり", "られる", "、", "。", "「", "」", "！", "？", "〜", "ー", ",", "."
+])
 
 def get_fasttext_embeddings(sentences, model):
     embeddings = []
@@ -63,26 +63,13 @@ def get_fasttext_embeddings(sentences, model):
         embeddings.append(np.mean(word_embeddings, axis=0) if word_embeddings else np.zeros(300))
     return np.array(embeddings)
 
-# 読み仮名から特徴量を抽出
-def extract_phonetic_features(yomi):
-    romaji = yomi
-    vowels = sum(1 for char in romaji if char in "aeiou")
-    consonants = len(romaji.replace(" ", "")) - vowels
-    length = len(romaji.split())  # 音節数
-    repeat_ratio = sum(romaji.count(char) > 1 for char in set(romaji)) / len(set(romaji))
-    
-    return [length, vowels, consonants, vowels / (consonants + 1e-5), repeat_ratio]
-
 # 特徴量の生成
-def generate_features(sentences, yomis):
+def generate_features(sentences):
     bert_embeddings = get_bert_embeddings(sentences, tokenizer, bert_model)
     fasttext_embeddings = get_fasttext_embeddings(sentences, fasttext_model)
     
-    # 新しい音韻的特徴量の追加
-    new_phonetic_features = np.array([extract_phonetic_features(yomi) for yomi in yomis])
-    
     # 特徴量の結合
-    X_combined = np.hstack((bert_embeddings, fasttext_embeddings, new_phonetic_features))
+    X_combined = np.hstack((bert_embeddings, fasttext_embeddings))
     return X_combined
 
 # ニューラルネットワークモデル
@@ -112,11 +99,10 @@ class DajarePredictor(nn.Module):
 # データ読み込みと前処理
 data = pd.read_csv(file_path)
 sentences = data['dajare'].astype(str).tolist()
-yomis = data['yomi'].astype(str).tolist()
 scores = data['score'].tolist()
 
 # 特徴量の生成
-X_combined = generate_features(sentences, yomis)
+X_combined = generate_features(sentences)
 
 # 特徴量の正規化
 X_combined = (X_combined - np.mean(X_combined, axis=0)) / np.std(X_combined, axis=0)
@@ -141,10 +127,10 @@ def objective(trial):
     batch_size = trial.suggest_int("batch_size", 16, 128)
     epochs = trial.suggest_int("epochs", 10, 100)
 
-    model = DajarePredictor(input_size=1073, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
-    # オプティマイザと損失関数の設定、AdamとRMSEを使用
+    model = DajarePredictor(input_size=928, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)  # Update input size
+    # オプティマイザと損失関数の設定、AdamとHuber損失を使用
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()
+    criterion = nn.SmoothL1Loss()  # Huber損失
 
     # データを訓練データと検証データに分割
     X_train_fold, X_val_fold, y_train_fold, y_val_fold = train_test_split(X_train, y_train, test_size=0.2, random_state=trial.suggest_int("split_seed", 0, 10000))
@@ -162,7 +148,7 @@ def objective(trial):
         for inputs, targets in train_loader:
             optimizer.zero_grad()
             predictions = model(inputs)
-            loss = torch.sqrt(criterion(predictions, targets))  # RMSEを計算
+            loss = criterion(predictions, targets)  # Huber損失を計算
             loss.backward()
             optimizer.step()
 
@@ -215,9 +201,9 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
     y_train_fold, y_val_fold = y_train[train_index], y_train[val_index]
 
     # 各フォールドごとに新しいモデル、オプティマイザ、損失関数を定義
-    model = DajarePredictor(input_size=1073, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
+    model = DajarePredictor(input_size=928, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)  # Update input size
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()
+    criterion = nn.SmoothL1Loss()  # Huber損失
 
     X_train_tensor = torch.tensor(X_train_fold, dtype=torch.float32)
     y_train_tensor = torch.tensor(y_train_fold, dtype=torch.float32).view(-1, 1)
@@ -237,7 +223,7 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
         for inputs, targets in train_loader:
             optimizer.zero_grad()
             predictions = model(inputs)
-            loss = torch.sqrt(criterion(predictions, targets))  # RMSEを計算
+            loss = criterion(predictions, targets)  # Huber損失を計算
             loss.backward()
             optimizer.step()
             epoch_train_loss += loss.item()
