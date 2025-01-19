@@ -14,7 +14,7 @@ import optuna
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.12"
+version = "v3.13"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -294,15 +294,15 @@ with torch.no_grad():
     print(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}")
 
 # スケールを100点満点の整数に戻す
-test_predictions = (test_predictions * 100).round().astype(int)
-y_test_tensor = (y_test_tensor * 100).round().astype(int)
+test_predictions = (test_predictions * 100).round().numpy().astype(int)
+y_test_tensor = (y_test_tensor * 100).round().numpy().astype(int)
 
 # テストデータのインデックスを取得
 _, test_indices = train_test_split(data.index, test_size=0.2, random_state=42)
 
 # テストデータのDataFrameを作成し、予測スコアを追加
 test_data = data.loc[test_indices].copy()
-test_data['predict'] = test_predictions.numpy()
+test_data['predict'] = test_predictions
 
 # テストデータと予測スコアを保存
 test_data.to_csv(os.path.join(save_metrics_dir, "test_predictions.csv"), index=False)
@@ -330,11 +330,11 @@ with open(os.path.join(save_metrics_dir, "Dajare_loss.txt"), "a") as f:
 
 # 予測スコアの分布をヒストグラムで保存
 plt.figure(figsize=(12, 6))
-plt.hist(test_predictions.numpy(), bins=50, edgecolor='k', color='skyblue', alpha=0.7, label='Predicted')
-plt.hist(y_test_tensor.numpy(), bins=50, edgecolor='k', color='orange', alpha=0.5, label='True')
+plt.hist(test_predictions, bins=50, edgecolor='k', color='skyblue', alpha=0.7, label='Predicted')
+plt.hist(y_test_tensor, bins=50, edgecolor='k', color='orange', alpha=0.5, label='True')
 
-min_score = min(test_predictions.min().item(), y_test_tensor.min().item())
-max_score = max(test_predictions.max().item(), y_test_tensor.max().item())  # 修正箇所
+min_score = min(test_predictions.min(), y_test_tensor.min())
+max_score = max(test_predictions.max(), y_test_tensor.max())  # 修正箇所
 ticks = np.arange(np.floor(min_score * 10) / 10, np.ceil(max_score * 10) / 10 + 0.1)
 plt.xticks(ticks)
 
