@@ -14,7 +14,7 @@ import optuna
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.11"
+version = "v3.12"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -28,7 +28,8 @@ fasttext_model_path = "../models/cc.ja.300.bin"
 fasttext_model = fasttext.load_model(fasttext_model_path)
 
 # BERTモデルとトークナイザー
-bert_model_name = "cl-tohoku/bert-base-japanese-v3"
+# bert_model_name = "cl-tohoku/bert-base-japanese-v3"
+bert_model_name = "sonoisa/sentence-bert-base-ja-mean-tokens-v2"
 tokenizer = BertJapaneseTokenizer.from_pretrained(bert_model_name)
 bert_model = BertModel.from_pretrained(bert_model_name)
 
