@@ -354,7 +354,7 @@ plt.hist(y_test_tensor, bins=50, edgecolor='k', color='orange', alpha=0.5, label
 
 min_score = min(test_predictions.min(), y_test_tensor.min())
 max_score = max(test_predictions.max(), y_test_tensor.max())
-ticks = np.arange(np.floor(min_score * 10) / 10, np.ceil(max_score * 10) / 10 + 0.1, 0.5)
+ticks = np.arange(np.floor(min_score * 10) / 10, np.ceil(max_score * 10) / 10 + 0.1, 5.0)  # 目盛りの間隔を5.0に変更
 plt.xticks(ticks)
 
 plt.xlabel("Score")
