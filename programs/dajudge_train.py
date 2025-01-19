@@ -14,7 +14,7 @@ import optuna
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.13"
+version = "v3.14"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -77,7 +77,7 @@ class DajarePredictor(nn.Module):
     def __init__(self, input_size, hidden_sizes, dropout_rate):
         super(DajarePredictor, self).__init__()
         self.fc1 = nn.Linear(input_size, hidden_sizes[0])
-        self.fc2 = nn.Linear(hidden_sizes[0])
+        self.fc2 = nn.Linear(hidden_sizes[0], hidden_sizes[1])
         self.fc3 = nn.Linear(hidden_sizes[1], hidden_sizes[2])
         self.fc4 = nn.Linear(hidden_sizes[2], hidden_sizes[3])
         self.fc5 = nn.Linear(hidden_sizes[3], 1)
@@ -389,8 +389,8 @@ plt.hist(test_predictions, bins=50, edgecolor='k', color='skyblue', alpha=0.7, l
 plt.hist(y_test_tensor, bins=50, edgecolor='k', color='orange', alpha=0.5, label='True')
 
 min_score = min(test_predictions.min(), y_test_tensor.min())
-max_score = max(test_predictions.max(), y_test_tensor.max())  # 修正箇所
-ticks = np.arange(np.floor(min_score * 10) / 10, np.ceil(max_score * 10) / 10 + 0.1)
+max_score = max(test_predictions.max(), y_test_tensor.max())
+ticks = np.arange(np.floor(min_score * 10) / 10, np.ceil(max_score * 10) / 10 + 0.1, 0.5)  # 間隔を0.5に調整
 plt.xticks(ticks)
 
 plt.xlabel("Score")
