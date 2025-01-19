@@ -14,7 +14,7 @@ import optuna
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.09"
+version = "v3.10"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -127,10 +127,9 @@ def objective(trial):
     batch_size = trial.suggest_int("batch_size", 16, 128)
     epochs = trial.suggest_int("epochs", 10, 100)
 
-    model = DajarePredictor(input_size=928, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
-    # オプティマイザと損失関数の設定、AdamとHuber損失を使用
+    model = DajarePredictor(input_size=1068, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.SmoothL1Loss()  # Huber損失
+    criterion = nn.MSELoss()  # RMSE損失
 
     # データを訓練データと検証データに分割
     X_train_fold, X_val_fold, y_train_fold, y_val_fold = train_test_split(X_train, y_train, test_size=0.2, random_state=trial.suggest_int("split_seed", 0, 10000))
@@ -148,7 +147,7 @@ def objective(trial):
         for inputs, targets in train_loader:
             optimizer.zero_grad()
             predictions = model(inputs)
-            loss = criterion(predictions, targets)  # Huber損失を計算
+            loss = criterion(predictions, targets)  # RMSE損失を計算
             loss.backward()
             optimizer.step()
 
@@ -201,9 +200,9 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
     y_train_fold, y_val_fold = y_train[train_index], y_train[val_index]
 
     # 各フォールドごとに新しいモデル、オプティマイザ、損失関数を定義
-    model = DajarePredictor(input_size=928, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)  # Update input size
+    model = DajarePredictor(input_size=1068, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)  # Update input size
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.SmoothL1Loss()  # Huber損失
+    criterion = nn.MSELoss()  # RMSE損失
 
     X_train_tensor = torch.tensor(X_train_fold, dtype=torch.float32)
     y_train_tensor = torch.tensor(y_train_fold, dtype=torch.float32).view(-1, 1)
@@ -223,7 +222,7 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
         for inputs, targets in train_loader:
             optimizer.zero_grad()
             predictions = model(inputs)
-            loss = criterion(predictions, targets)  # Huber損失を計算
+            loss = criterion(predictions, targets)  # RMSE損失を計算
             loss.backward()
             optimizer.step()
             epoch_train_loss += loss.item()
