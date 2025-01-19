@@ -13,7 +13,7 @@ import fasttext
 import optuna
 
 # データパスと保存ディレクトリ
-file_path = "../../data/final/dajare_dataset.csv"
+file_path = "../../data/final/final_dataset.csv"
 version = "v3.15"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
