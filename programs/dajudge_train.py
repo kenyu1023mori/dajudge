@@ -14,7 +14,7 @@ import optuna
 
 # データパスと保存ディレクトリ
 file_path = "../../data/final/dajare_dataset.csv"
-version = "v3.10"
+version = "v3.11"
 save_model_dir = f"../models/{version}"
 os.makedirs(save_model_dir, exist_ok=True)
 save_metrics_dir = f"../metrics/{version}"
@@ -292,9 +292,9 @@ with torch.no_grad():
     test_mae_loss = mean_absolute_error(y_test_tensor.numpy(), test_predictions.numpy())  # MAEを計算
     print(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}")
 
-# スケールを1～5に戻す
-test_predictions = test_predictions * 4 + 1
-y_test_tensor = y_test_tensor * 4 + 1
+# スケールを100点満点の整数に戻す
+test_predictions = (test_predictions * 100).round().astype(int)
+y_test_tensor = (y_test_tensor * 100).round().astype(int)
 
 # テストデータのインデックスを取得
 _, test_indices = train_test_split(data.index, test_size=0.2, random_state=42)
