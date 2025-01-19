@@ -115,6 +115,21 @@ X_train, X_test, y_train, y_test = train_test_split(X_combined, y, test_size=0.2
 # 5分割交差検証の設定
 kf = KFold(n_splits=5, shuffle=True, random_state=42)
 
+# 損失関数と評価関数の候補
+loss_functions = {
+    "MSELoss": nn.MSELoss(),
+    "L1Loss": nn.L1Loss(),
+    "SmoothL1Loss": nn.SmoothL1Loss(),
+    "RMSELoss": lambda predictions, targets: torch.sqrt(nn.MSELoss()(predictions, targets))
+}
+
+evaluation_metrics = {
+    "RMSE": lambda y_true, y_pred: mean_squared_error(y_true, y_pred, squared=False),
+    "MAE": mean_absolute_error,
+    "MSE": mean_squared_error,
+    "R2": lambda y_true, y_pred: 1 - (np.sum((y_true - y_pred) ** 2) / np.sum((y_true - np.mean(y_true)) ** 2))
+}
+
 # Optunaの目的関数
 def objective(trial):
     hidden_sizes = [
@@ -128,9 +143,14 @@ def objective(trial):
     batch_size = trial.suggest_int("batch_size", 16, 128)
     epochs = trial.suggest_int("epochs", 10, 100)
 
+    # 損失関数と評価関数を選択
+    loss_function_name = trial.suggest_categorical("loss_function", list(loss_functions.keys()))
+    evaluation_metric_name = trial.suggest_categorical("evaluation_metric", list(evaluation_metrics.keys()))
+    criterion = loss_functions[loss_function_name]
+    evaluation_metric = evaluation_metrics[evaluation_metric_name]
+
     model = DajarePredictor(input_size=1068, hidden_sizes=hidden_sizes, dropout_rate=dropout_rate)
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()  # RMSE損失
 
     # データを訓練データと検証データに分割
     X_train_fold, X_val_fold, y_train_fold, y_val_fold = train_test_split(X_train, y_train, test_size=0.2, random_state=trial.suggest_int("split_seed", 0, 10000))
@@ -148,16 +168,16 @@ def objective(trial):
         for inputs, targets in train_loader:
             optimizer.zero_grad()
             predictions = model(inputs)
-            loss = criterion(predictions, targets)  # RMSE損失を計算
+            loss = criterion(predictions, targets)
             loss.backward()
             optimizer.step()
 
     model.eval()
     with torch.no_grad():
         val_predictions = model(X_val_tensor)
-        val_rmse_loss = mean_squared_error(y_val_tensor.numpy(), val_predictions.numpy(), squared=False)
+        val_loss = evaluation_metric(y_val_tensor.numpy(), val_predictions.numpy())
 
-    return val_rmse_loss
+    return val_loss
 
 # Optunaによるハイパーパラメータ探索
 study = optuna.create_study(direction="minimize")
@@ -177,20 +197,17 @@ dropout_rate = best_params["dropout_rate"]
 learning_rate = best_params["learning_rate"]
 batch_size = best_params["batch_size"]
 epochs = best_params["epochs"]
-
-"""
-# 手動でパラメータを指定
-hidden_sizes = [761, 368, 94, 112]
-dropout_rate = 0.4567045577962901
-learning_rate = 0.0005650662190333565
-batch_size = 47
-epochs = 47
-"""
+loss_function_name = best_params["loss_function"]
+evaluation_metric_name = best_params["evaluation_metric"]
+criterion = loss_functions[loss_function_name]
+evaluation_metric = evaluation_metrics[evaluation_metric_name]
 
 # 交差検証の結果を保存するリスト
 all_train_losses = []
 all_val_losses = []
 all_val_mae_losses = []
+all_val_mse_losses = []
+all_val_r2_scores = []
 best_fold = None
 best_val_rmse = float('inf')
 
@@ -216,6 +233,8 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
     train_losses = []
     val_losses = []
     val_mae_losses = []  # MAEの損失関数の推移を保存するリスト
+    val_mse_losses = []  # MSEの損失関数の推移を保存するリスト
+    val_r2_scores = []  # R2スコアの推移を保存するリスト
 
     for epoch in range(epochs):
         model.train()
@@ -236,9 +255,13 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
             val_predictions = model(X_val_tensor)
             val_rmse_loss = mean_squared_error(y_val_tensor.numpy(), val_predictions.numpy(), squared=False)
             val_mae_loss = mean_absolute_error(y_val_tensor.numpy(), val_predictions.numpy())  # MAEを計算
+            val_mse_loss = mean_squared_error(y_val_tensor.numpy(), val_predictions.numpy())  # MSEを計算
+            val_r2_score = 1 - (np.sum((y_val_tensor.numpy() - val_predictions.numpy()) ** 2) / np.sum((y_val_tensor.numpy() - np.mean(y_val_tensor.numpy())) ** 2))  # R2スコアを計算
             val_losses.append(val_rmse_loss)
             val_mae_losses.append(val_mae_loss)
-            print(f"Epoch {epoch+1}, Training Loss: {epoch_train_loss}, Validation RMSE: {val_rmse_loss}, Validation MAE: {val_mae_loss}")
+            val_mse_losses.append(val_mse_loss)
+            val_r2_scores.append(val_r2_score)
+            print(f"Epoch {epoch+1}, Training Loss: {epoch_train_loss}, Validation RMSE: {val_rmse_loss}, Validation MAE: {val_mae_loss}, Validation MSE: {val_mse_loss}, Validation R2: {val_r2_score}")
 
     # 最も性能の良いモデルを選択
     if val_rmse_loss < best_val_rmse:
@@ -269,14 +292,38 @@ for fold, (train_index, val_index) in enumerate(kf.split(X_train)):
     plt.savefig(os.path.join(save_metrics_dir, f"Dajare_mae_loss_fold{fold + 1}.png"))
     plt.close()
 
+    # 損失関数の推移を棒グラフに出力（MSE）
+    plt.figure(figsize=(12, 6))
+    plt.plot(range(1, epochs + 1), val_mse_losses, label='Validation MSE', color='red')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title(f'Validation MSE Over Epochs (Fold {fold + 1})')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_metrics_dir, f"Dajare_mse_loss_fold{fold + 1}.png"))
+    plt.close()
+
+    # R2スコアの推移を棒グラフに出力
+    plt.figure(figsize=(12, 6))
+    plt.plot(range(1, epochs + 1), val_r2_scores, label='Validation R2', color='purple')
+    plt.xlabel('Epoch')
+    plt.ylabel('R2 Score')
+    plt.title(f'Validation R2 Over Epochs (Fold {fold + 1})')
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_metrics_dir, f"Dajare_r2_score_fold{fold + 1}.png"))
+    plt.close()
+
     # 損失関数の推移をテキストとして保存
     with open(os.path.join(save_metrics_dir, f"Dajare_loss_fold{fold + 1}.txt"), "a") as f:
-        for epoch, (train_loss, val_loss, val_mae_loss) in enumerate(zip(train_losses, val_losses, val_mae_losses), 1):
-            f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation RMSE: {val_loss}, Validation MAE: {val_mae_loss}\n")
+        for epoch, (train_loss, val_loss, val_mae_loss, val_mse_loss, val_r2_score) in enumerate(zip(train_losses, val_losses, val_mae_losses, val_mse_losses, val_r2_scores), 1):
+            f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation RMSE: {val_loss}, Validation MAE: {val_mae_loss}, Validation MSE: {val_mse_loss}, Validation R2: {val_r2_score}\n")
 
     all_train_losses.append(train_losses)
     all_val_losses.append(val_losses)
     all_val_mae_losses.append(val_mae_losses)
+    all_val_mse_losses.append(val_mse_losses)
+    all_val_r2_scores.append(val_r2_scores)
 
 print(f"Best fold: {best_fold}")
 
@@ -291,7 +338,9 @@ with torch.no_grad():
     test_predictions = model(X_test_tensor)
     test_rmse_loss = mean_squared_error(y_test_tensor.numpy(), test_predictions.numpy(), squared=False)
     test_mae_loss = mean_absolute_error(y_test_tensor.numpy(), test_predictions.numpy())  # MAEを計算
-    print(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}")
+    test_mse_loss = mean_squared_error(y_test_tensor.numpy(), test_predictions.numpy())  # MSEを計算
+    test_r2_score = 1 - (np.sum((y_test_tensor.numpy() - test_predictions.numpy()) ** 2) / np.sum((y_test_tensor.numpy() - np.mean(y_test_tensor.numpy())) ** 2))  # R2スコアを計算
+    print(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}, Test MSE: {test_mse_loss}, Test R2: {test_r2_score}")
 
 # スケールを100点満点の整数に戻す
 test_predictions = (test_predictions * 100).round().numpy().astype(int)
@@ -323,7 +372,7 @@ y_pred_count = np.bincount(y_pred)
 
 # 評価指標の保存
 with open(os.path.join(save_metrics_dir, "Dajare_loss.txt"), "a") as f:
-    f.write(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}\n")
+    f.write(f"Test RMSE: {test_rmse_loss}, Test MAE: {test_mae_loss}, Test MSE: {test_mse_loss}, Test R2: {test_r2_score}\n")
     f.write(f"Accuracy: {accuracy}, Precision: {precision}, Recall: {recall}, F1 Score: {f1}\n")
     f.write(f"y_true counts: {y_true_count.tolist()}\n")
     f.write(f"y_pred counts: {y_pred_count.tolist()}\n")
@@ -369,7 +418,29 @@ plt.tight_layout()
 plt.savefig(os.path.join(save_metrics_dir, "Dajare_mae_loss.png"))
 plt.close()
 
+# 損失関数の推移を棒グラフに出力（MSE）
+plt.figure(figsize=(12, 6))
+plt.plot(range(1, epochs + 1), val_mse_losses, label='Validation MSE', color='red')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Validation MSE Over Epochs')
+plt.legend()
+plt.tight_layout()
+plt.savefig(os.path.join(save_metrics_dir, "Dajare_mse_loss.png"))
+plt.close()
+
+# R2スコアの推移を棒グラフに出力
+plt.figure(figsize=(12, 6))
+plt.plot(range(1, epochs + 1), val_r2_scores, label='Validation R2', color='purple')
+plt.xlabel('Epoch')
+plt.ylabel('R2 Score')
+plt.title('Validation R2 Over Epochs')
+plt.legend()
+plt.tight_layout()
+plt.savefig(os.path.join(save_metrics_dir, "Dajare_r2_score.png"))
+plt.close()
+
 # 損失関数の推移をテキストとして保存
 with open(os.path.join(save_metrics_dir, "Dajare_loss.txt"), "a") as f:
-    for epoch, (train_loss, val_loss, val_mae_loss) in enumerate(zip(train_losses, val_losses, val_mae_losses), 1):
-        f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation RMSE: {val_loss}, Validation MAE: {val_mae_loss}\n")
+    for epoch, (train_loss, val_loss, val_mae_loss, val_mse_loss, val_r2_score) in enumerate(zip(train_losses, val_losses, val_mae_losses, val_mse_losses, val_r2_scores), 1):
+        f.write(f"Epoch {epoch}: Training Loss: {train_loss}, Validation RMSE: {val_loss}, Validation MAE: {val_mae_loss}, Validation MSE: {val_mse_loss}, Validation R2: {val_r2_score}\n")
